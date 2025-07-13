@@ -1,7 +1,7 @@
 // C:\reactjs node mongodb\pharmacie-backend\src\controllers\statsController.js
 
 
-const User = require('../models/User');
+const { User } = require('../models/User');
 const mongoose = require('mongoose');
 
 /**

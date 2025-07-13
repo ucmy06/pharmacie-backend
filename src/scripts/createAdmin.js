@@ -1,6 +1,6 @@
 //C:\reactjs node mongodb\pharmacie-backend\src\scripts\createAdmin.js
 const mongoose = require('mongoose');
-const User = require('../models/User');
+const { User } = require('../models/User');
 const { connectDB } = require('../config/database');
 
 const createDefaultAdmin = async () => {

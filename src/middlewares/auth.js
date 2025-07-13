@@ -1,7 +1,7 @@
 // C:\reactjs node mongodb\pharmacie-backend\src\middlewares\auth.js
 
 const { verifyToken, extractTokenFromHeader } = require('../utils/tokenUtils');
-const User = require('../models/User');
+const { User } = require('../models/User');
 
 /**
  * Middleware d'authentification
@@ -10,45 +10,51 @@ const User = require('../models/User');
 const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
+    console.log("🔐 [auth middleware] Header reçu :", authHeader);
+
     const token = extractTokenFromHeader(authHeader);
-    
+    console.log("🔑 [auth middleware] Token extrait :", token);
+
     if (!token) {
+      console.log("❌ Token manquant");
       return res.status(401).json({
         success: false,
         message: 'Token d\'authentification manquant'
       });
     }
-    
-    // Vérifier le token
+
     const decoded = verifyToken(token);
-    if (!decoded) {
+    console.log("📦 [auth middleware] Token décodé :", decoded);
+
+    if (!decoded || !decoded.id) {
+      console.log("❌ Token invalide ou expiré");
       return res.status(401).json({
         success: false,
         message: 'Token invalide ou expiré'
       });
     }
-    
-    // Récupérer l'utilisateur complet
+
     const user = await User.findById(decoded.id).select('-motDePasse');
+    console.log("👤 [auth middleware] Utilisateur trouvé :", user);
+
     if (!user) {
+      console.log("❌ Utilisateur non trouvé");
       return res.status(401).json({
         success: false,
         message: 'Utilisateur non trouvé'
       });
     }
-    
-    // Vérifier si le compte est actif
+
     if (!user.isActive) {
+      console.log("🚫 Compte désactivé");
       return res.status(401).json({
         success: false,
         message: 'Compte désactivé'
       });
     }
-    
-    // Ajouter l'utilisateur à la requête
+
     req.user = user;
     next();
-    
   } catch (error) {
     console.error('❌ Erreur middleware auth:', error);
     return res.status(500).json({
@@ -57,6 +63,7 @@ const authenticate = async (req, res, next) => {
     });
   }
 };
+
 
 /**
  * Middleware optionnel d'authentification
@@ -69,8 +76,12 @@ const optionalAuth = async (req, res, next) => {
     
     if (token) {
       const decoded = verifyToken(token);
+      console.log("🧪 decoded:", decoded);
+
       if (decoded) {
         const user = await User.findById(decoded.id).select('-motDePasse');
+        console.log("🔍 Utilisateur trouvé:", user);
+
         if (user && user.isActive) {
           req.user = user;
         }

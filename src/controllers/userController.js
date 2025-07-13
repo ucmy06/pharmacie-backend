@@ -1,7 +1,6 @@
 //C:\reactjs node mongodb\pharmacie-backend\src\controllers\userController.js
 
-const User = require('../models/User');
-
+const { User } = require('../models/User');
 /**
  * Obtenir tous les utilisateurs (Admin seulement)
  */

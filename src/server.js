@@ -1,14 +1,10 @@
-// Fichier : C:\reactjs-node-mongodb\pharmacie-backend\src\server.js
+// src/server.js
 require('dotenv').config();
-const app = require('./app'); // Importe la configuration Express
 const mongoose = require('mongoose');
-
-// Port par défaut
-const PORT = process.env.PORT || 3001;
-
-// Import correct du modèle User
+const app = require('./app');
 const { User } = require('./models/User');
 
+// 🔐 Création du compte administrateur par défaut
 const createDefaultAdmin = async () => {
   try {
     const exists = await User.findOne({ email: "julienguenoukpati825@gmail.com" });
@@ -16,11 +12,11 @@ const createDefaultAdmin = async () => {
       await User.create({
         nom: "GUENOUKPATI",
         prenom: "malike",
-        telephone: "+22898350449",  // Nom correct du champ
+        telephone: "+22898350449",
         email: "julienguenoukpati825@gmail.com",
-        motDePasse: "Jul26531",  // Nom correct du champ
+        motDePasse: "Jul26531",
         role: "admin",
-        isActive: true,  // Nom correct du champ
+        isActive: true,
         isVerified: true
       });
       console.log("✅ Compte administrateur créé.");
@@ -28,29 +24,30 @@ const createDefaultAdmin = async () => {
       console.log("⚠️ Compte administrateur existe déjà.");
     }
   } catch (error) {
-    console.error("❌ Erreur création admin:", error);
+    console.error("❌ Erreur création admin :", error);
   }
 };
 
-// Connexion MongoDB
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/pharmacie_db')
+// 🌐 Connexion à MongoDB
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/pharmacie_db';
+const PORT = process.env.PORT || 3001;
+
+mongoose.connect(MONGODB_URI)
   .then(async () => {
     console.log('✅ Connecté à MongoDB');
-    
-    // Créer l'admin par défaut après connexion
     await createDefaultAdmin();
-    
-    // Démarrage du serveur après connexion DB
+
+    // 🚀 Lancement du serveur
     app.listen(PORT, () => {
       console.log(`🚀 API en écoute sur http://localhost:${PORT}`);
     });
   })
   .catch(err => {
-    console.error('❌ Erreur de connexion MongoDB:', err);
-    process.exit(1); // Arrête l'application en cas d'erreur
+    console.error('❌ Erreur de connexion MongoDB :', err);
+    process.exit(1);
   });
 
-// Gestion des arrêts propres
+// 🔁 Gestion de l’arrêt propre du serveur
 process.on('SIGINT', () => {
   console.log('\n🔄 Arrêt du serveur...');
   mongoose.connection.close(() => {
@@ -58,5 +55,3 @@ process.on('SIGINT', () => {
     process.exit(0);
   });
 });
-const listEndpoints = require('express-list-endpoints');
-console.log(listEndpoints(app));

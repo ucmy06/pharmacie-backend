@@ -450,62 +450,74 @@ const getProfile = async (req, res) => {
     });
   }
 };
-
-/**
- * Demande de création d'un compte pharmacie (utilisateur connecté)
- */
 const demandeComptePharmacie = async (req, res) => {
   try {
-    const { nomPharmacie, adresseGoogleMaps, livraisonDisponible } = req.body;
+    console.log("🟢 Fichier reçu (req.files):", req.files);
+console.log("🟢 Données reçues (req.body):", req.body);
+console.log("🟢 Utilisateur connecté (req.user):", req.user);
 
-    // Vérifier si l'utilisateur a déjà une demande en cours
-    if (req.user.demandePharmacie.statutDemande === 'en_attente') {
+
+    const {
+      nomPharmacie,
+      emailPharmacie,
+      telephonePharmacie,
+      adresseGoogleMaps
+    } = req.body;
+
+    const documentsVerification = req.files['documentsVerification'] || [];
+    const photoPharmacieFile = req.files['photoPharmacie']?.[0] || null;
+
+    if (
+      !nomPharmacie ||
+      !emailPharmacie ||
+      !telephonePharmacie ||
+      !adresseGoogleMaps ||
+      documentsVerification.length === 0
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Vous avez déjà une demande en cours d\'examen'
+        message: 'Tous les champs requis doivent être remplis'
       });
     }
 
-    // Vérifier si l'utilisateur est déjà une pharmacie
-    if (req.user.role === 'pharmacie') {
-      return res.status(400).json({
-        success: false,
-        message: 'Vous êtes déjà une pharmacie'
-      });
-    }
+    const docs = documentsVerification.map(file => ({
+  nomFichier: file.originalname,
+  cheminFichier: file.path,
+  typeFichier: file.mimetype,
+  tailleFichier: file.size,
+  dateUpload: new Date()
+}));
 
-    // Mettre à jour la demande
+    const photoPath = photoPharmacieFile?.path || null;
+
     req.user.demandePharmacie = {
       statutDemande: 'en_attente',
       dateDemande: new Date(),
       informationsPharmacie: {
         nomPharmacie,
+        emailPharmacie,
+        telephonePharmacie,
         adresseGoogleMaps,
-        livraisonDisponible: livraisonDisponible || false
+        photoPharmacie: photoPath,
+        documentsVerification: docs
+
       }
     };
 
     await req.user.save();
-
-    // Envoyer notification à l'admin
-    try {
-      await sendPharmacyRequestNotification({
-        nom: req.user.nom,
-        prenom: req.user.prenom,
-        email: req.user.email,
-        telephone: req.user.telephone,
-        nomPharmacie,
-        adresseGoogleMaps,
-        livraisonDisponible
-      });
-      console.log('✅ Notification admin envoyée');
-    } catch (emailError) {
-      console.error('❌ Erreur notification admin:', emailError);
-    }
-
-    res.json({
+  // Notification à l'admin par email (si définie)
+  await sendPharmacyRequestNotification({
+  nomPharmacie: req.body.nomPharmacie,
+  adresseGoogleMaps: req.body.adresseGoogleMaps,
+  nom: req.user.nom,
+  prenom: req.user.prenom,
+  email: req.user.email,
+  telephone: req.user.telephone,
+  livraisonDisponible: false // si tu n'as pas encore ce champ, force-le à false
+});
+    return res.json({
       success: true,
-      message: 'Demande de création de compte pharmacie envoyée avec succès',
+      message: 'Demande de création de pharmacie envoyée avec succès',
       data: {
         statutDemande: req.user.demandePharmacie.statutDemande,
         dateDemande: req.user.demandePharmacie.dateDemande
@@ -516,10 +528,13 @@ const demandeComptePharmacie = async (req, res) => {
     console.error('❌ Erreur demande pharmacie:', error);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la demande'
+      message: 'Erreur lors de la demande',
+      error: error.message
     });
   }
 };
+
+
 
 /**
  * Connexion utilisateur à une pharmacie (enregistre la connexion)

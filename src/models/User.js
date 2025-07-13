@@ -15,6 +15,15 @@ const pharmacieInfoSchema = new mongoose.Schema({
     type: String,
     required: function() { return this.parent().role === 'pharmacie'; }
   },
+numeroPharmacie: {
+  type: String,
+  required: function () { return this.parent().role === 'pharmacie'; },
+  unique: true,
+  trim: true,
+  sparse: true // ✅ pour éviter l'erreur avec null
+},
+
+
   livraisonDisponible: {
     type: Boolean,
     default: false
@@ -172,7 +181,16 @@ const userSchema = new mongoose.Schema({
     informationsPharmacie: {
       nomPharmacie: String,
       adresseGoogleMaps: String,
-      livraisonDisponible: Boolean,
+      emailPharmacie: String,
+      telephonePharmacie: String,
+      adresseGoogleMaps: String,
+      photoPharmacie:{
+      nomFichier: { type: String, required: false },
+      cheminFichier: { type: String, required: false },
+      typeFichier: { type: String, required: false },
+      tailleFichier: { type: Number, required: false },
+      dateUpload: { type: Date, default: Date.now }
+      }, // chemin fichier image
       documentsVerification: [{
         nomFichier: String,
         cheminFichier: String,
@@ -181,10 +199,19 @@ const userSchema = new mongoose.Schema({
         dateUpload: { type: Date, default: Date.now }
       }]
     },
+    
+    createdBy: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: 'User',
+  default: null
+  },
+
+
     motifRejet: String,
     dateApprobation: Date,
     dateRejet: Date
   }
+  
 }, {
   timestamps: true
 });
@@ -283,6 +310,18 @@ const connexionPharmacieSchemaModel = new mongoose.Schema({
 });
 
 const User = mongoose.model('User', userSchema);
+
+// Création manuelle de l'index unique sparse
+try {
+  User.collection.createIndex(
+    { 'pharmacieInfo.numeroPharmacie': 1 },
+    { unique: true, sparse: true }
+  );
+} catch (err) {
+  console.error('Erreur lors de la création de l’index numeroPharmacie:', err.message);
+}
+
+
 const ConnexionPharmacie = mongoose.model('ConnexionPharmacie', connexionPharmacieSchemaModel);
 
 module.exports = { User, ConnexionPharmacie };

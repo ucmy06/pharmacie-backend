@@ -1,4 +1,7 @@
 //C:\reactjs node mongodb\pharmacie-backend\src\routes\auth.js
+// const multer = require('multer');
+const path = require('path');
+
 const express = require('express');
 const router = express.Router();
 const {
@@ -9,10 +12,23 @@ const {
   resetPassword,
   verifyEmail,
   resendVerificationEmail,
-  demandeComptePharmacie,
+  // demandeComptePharmacie,
   connexionPharmacie
 } = require('../controllers/authController');
 const { authenticate } = require('../middlewares/auth');
+
+
+// Configuration de Multer (tu peux l’externaliser dans un fichier uploadConfig.js)
+// const storage = multer.diskStorage({
+//   destination: function (req, file, cb) {
+//     cb(null, 'uploads/documents/'); // Assure-toi que ce dossier existe
+//   },
+//   filename: function (req, file, cb) {
+//     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+//     cb(null, uniqueSuffix + '-' + file.originalname);
+//   }
+// });
+// const upload = multer({ storage });
 
 // Routes publiques
 router.post('/register', register);
@@ -26,7 +42,15 @@ router.post('/resend-verification', resendVerificationEmail);
 
 // Routes protégées (nécessitent une authentification)
 router.get('/profile', authenticate, getProfile);
-router.post('/demande-pharmacie', authenticate, demandeComptePharmacie);
+// router.post(
+//   '/demande-pharmacie',
+//   authenticate,
+//   upload.fields([
+//     { name: 'documentsVerification', maxCount: 10 },
+//     { name: 'photoPharmacie', maxCount: 1 }
+//   ]),
+//   demandeComptePharmacie
+// );
 router.post('/connexion-pharmacie', authenticate, connexionPharmacie);
 
 module.exports = router;
