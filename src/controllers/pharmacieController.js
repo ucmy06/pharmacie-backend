@@ -1,5 +1,6 @@
 // C:\reactjs node mongodb\pharmacie-backend\src\controllers\pharmacieController.js
 
+
 const { User, ConnexionPharmacie } = require('../models/User');
 const { sendPharmacyConnectionNotification } = require('../utils/emailUtils');
 const multer = require('multer');
@@ -13,7 +14,7 @@ const storage = multer.diskStorage({
     cb(null, 'uploads/pharmacies/');
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);      
     cb(null, `${req.user._id}-${uniqueSuffix}${path.extname(file.originalname)}`);
   }
 });

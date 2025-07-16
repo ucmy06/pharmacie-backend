@@ -100,3 +100,4 @@ module.exports = {
   generateRefreshToken,
   JWT_SECRET
 };
+

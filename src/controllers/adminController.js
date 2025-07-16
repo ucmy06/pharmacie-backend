@@ -1,8 +1,13 @@
 // C:\reactjs node mongodb\pharmacie-backend\src\controllers\adminController.js
+const Counter = require('../models/Counter');
 
 const {User} = require('../models/User');
-const { sendVerificationEmail } = require('../utils/emailUtils');
 const jwt = require('jsonwebtoken');
+const { generateRandomPassword } = require('../utils/passwordUtils');
+const { sendVerificationEmail, sendGeneratedPasswordToPharmacy, sendPharmacyApprovalEmail, sendPharmacyRequestStatusEmail } = require('../utils/emailUtils');
+const crypto = require('crypto');
+
+
 
 /**
  * Obtenir toutes les demandes de pharmacies en attente
@@ -49,9 +54,24 @@ const getPharmacieRequests = async (req, res) => {
   }
 };
 
+    // Générer un numéro de pharmacie unique
+
+
+// Générer un identifiant incrémental unique
+async function getNextPharmacyNumber() {
+  const counter = await Counter.findOneAndUpdate(
+    { name: 'numeroPharmacie' },
+    { $inc: { value: 1 } },
+    { new: true, upsert: true }
+  );
+  return `PHARM-${counter.value}`; // ex: PHARM-1001
+}
+
 /**
  * Approuver une demande de pharmacie
  */
+// Dans adminController.js, corrigez l'appel à sendPharmacyApprovalEmail
+
 const approvePharmacieRequest = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -66,6 +86,9 @@ const approvePharmacieRequest = async (req, res) => {
     if (demandeur.demandePharmacie.statutDemande !== 'en_attente') {
       return res.status(400).json({ success: false, message: 'Demande déjà traitée' });
     }
+    
+    const motDePasseGenere = generateRandomPassword();
+    const numeroPharmacie = await getNextPharmacyNumber();
 
     const info = demandeur.demandePharmacie.informationsPharmacie;
 
@@ -75,14 +98,18 @@ const approvePharmacieRequest = async (req, res) => {
       email: info.emailPharmacie,
       telephone: info.telephonePharmacie,
       role: 'pharmacie',
+      motDePasse: motDePasseGenere,
+      motDePasseTemporaire: true,
+
       pharmacieInfo: {
         nomPharmacie: info.nomPharmacie,
+        numeroPharmacie: numeroPharmacie,
         adresseGoogleMaps: info.adresseGoogleMaps,
         photoPharmacie: info.photoPharmacie,
         documentsVerification: info.documentsVerification || [],
         statutDemande: 'approuvee',
         dateApprobation: new Date(),
-        commentaireApprobation: commentaire || 'Demande approuvée',
+        commentaireApprobation: commentaire || 'Demande approuvee',
         approuvePar: req.user._id
       },
       isVerified: false,
@@ -94,17 +121,29 @@ const approvePharmacieRequest = async (req, res) => {
 
     await pharmacie.save();
 
+    // Mettre à jour la demande du client
     demandeur.demandePharmacie.statutDemande = 'approuvee';
     demandeur.demandePharmacie.dateApprobation = new Date();
     await demandeur.save();
 
+    // Envois des emails
     await sendVerificationEmail(info.emailPharmacie, token, info.nomPharmacie);
+    await sendGeneratedPasswordToPharmacy(info.emailPharmacie, motDePasseGenere);
+    await sendPharmacyRequestStatusEmail(info.emailPharmacie, 'approuvee');
+    await sendPharmacyRequestStatusEmail(demandeur.email, 'approuvee');
+
+    // CORRECTION : Passez les bons paramètres à sendPharmacyApprovalEmail
+    await sendPharmacyApprovalEmail(info.emailPharmacie, {
+      nom: info.nomPharmacie, // Utilisez 'nom' au lieu de 'nomPharmacie'
+      motDePasse: motDePasseGenere
+    });
 
     res.json({
       success: true,
       message: 'Pharmacie approuvée et compte créé avec succès',
       data: { pharmacie: pharmacie.toJSON() }
     });
+    
   } catch (error) {
     console.error('❌ Erreur approbation pharmacie:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
@@ -114,6 +153,8 @@ const approvePharmacieRequest = async (req, res) => {
 /**
  * Rejeter une demande de pharmacie
  */
+// Dans adminController.js, corrigez la fonction rejectPharmacieRequest
+
 const rejectPharmacieRequest = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -139,12 +180,62 @@ const rejectPharmacieRequest = async (req, res) => {
     demandeur.demandePharmacie.approuvePar = req.user._id;
     await demandeur.save();
 
+    // CORRECTION : Déplacez l'envoi d'email AVANT le return
+    await sendPharmacyRequestStatusEmail(
+      demandeur.demandePharmacie.informationsPharmacie?.emailPharmacie || demandeur.email, 
+      'rejetée'
+    );
+
     res.json({ success: true, message: 'Demande rejetée avec succès' });
+    
   } catch (error) {
     console.error('❌ Erreur rejet demande pharmacie:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
+  
+  // SUPPRIMEZ cette ligne qui est après le } catch et qui ne sera jamais exécutée
+  // await sendPharmacyRequestStatusEmail(demandeur.demandePharmacie.informationsPharmacie?.emailPharmacie || demandeur.email, 'rejetée');
 };
+
+/** * Mettre à jour le statut d'une demande de pharmacie
+ */
+
+/**
+ * Mettre à jour le statut d'une demande de pharmacie
+ * CORRECTION : Récupérer userId depuis req.body au lieu de req.params
+ */
+const updatePharmacyRequestStatus = async (req, res) => {
+  try {
+    // CORRECTION : Récupérer userId depuis le body
+    const { userId, statut, commentaire } = req.body;
+
+    // Validation des paramètres
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'ID utilisateur requis' });
+    }
+
+    if (!['approuvee', 'rejetee'].includes(statut)) {
+      return res.status(400).json({ success: false, message: 'Statut invalide' });
+    }
+
+    // Créer un objet request temporaire pour les fonctions existantes
+    const tempReq = {
+      ...req,
+      params: { userId },
+      body: { commentaire }
+    };
+
+    if (statut === 'approuvee') {
+      return approvePharmacieRequest(tempReq, res);
+    } else {
+      return rejectPharmacieRequest(tempReq, res);
+    }
+  } catch (error) {
+    console.error('❌ Erreur mise à jour statut:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
 
 /**
  * Obtenir les détails d'une pharmacie
@@ -325,5 +416,8 @@ module.exports = {
   getPharmacieRequestDetails,
   updatePharmacieDocuments,
   getAdminDashboard,
-  getApprovedPharmacies
+  getApprovedPharmacies,
+  sendPharmacyRequestStatusEmail,
+  updatePharmacyRequestStatus // ✅ Ajout ici aussi
+
 };

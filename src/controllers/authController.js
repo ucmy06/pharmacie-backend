@@ -240,6 +240,21 @@ const login = async (req, res) => {
 
     // Générer le token
     const token = generateToken(user);
+// c'est ici que l'on vérifie si le mot de passe est temporaire ?
+
+    // Vérifier si le mot de passe est temporaire
+if (user.motDePasseTemporaire) {
+  return res.json({
+    success: true,
+    message: 'Connexion avec mot de passe temporaire. Veuillez le changer.',
+    motDePasseTemporaire: true,
+    data: {
+      token,
+      user: user.getPublicProfile()
+    }
+  });
+}
+
 
     res.json({
       success: true,
@@ -515,6 +530,8 @@ console.log("🟢 Utilisateur connecté (req.user):", req.user);
   telephone: req.user.telephone,
   livraisonDisponible: false // si tu n'as pas encore ce champ, force-le à false
 });
+
+
     return res.json({
       success: true,
       message: 'Demande de création de pharmacie envoyée avec succès',

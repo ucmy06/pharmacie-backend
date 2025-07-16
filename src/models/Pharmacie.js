@@ -1,4 +1,4 @@
-// src/models/Pharmacie.js
+// C:\reactjs node mongodb\pharmacie-backend\src\models\Pharmacie.js
 const mongoose = require('mongoose');
 
 const connexionLogSchema = new mongoose.Schema({

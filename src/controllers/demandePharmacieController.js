@@ -31,7 +31,20 @@ const upload = multer({
 });
 
 // Middleware exporté
-const uploadDocuments = upload.array('documents', 5);
+const uploadDocuments = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Seuls les fichiers images ou PDF sont autorisés'));
+    }
+  }
+}).fields([
+  { name: 'photoPharmacie', maxCount: 1 },
+  { name: 'documentsVerification', maxCount: 5 }
+]);
 
 // POST /api/demandes-pharmacie
 const creerDemandePharmacie = async (req, res) => {

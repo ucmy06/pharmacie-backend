@@ -126,6 +126,13 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Le mot de passe est requis'],
     minlength: [6, 'Le mot de passe doit contenir au moins 6 caractères']
   },
+ 
+  motDePasseTemporaire: {
+  type: Boolean,
+  default: false
+},
+
+
   adresse: {
     type: String,
     trim: true
