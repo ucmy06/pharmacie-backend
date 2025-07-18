@@ -51,6 +51,5 @@ router.get('/profile', authenticate, getProfile);
 //   ]),
 //   demandeComptePharmacie
 // );
-router.post('/connexion-pharmacie', authenticate, connexionPharmacie);
 
 module.exports = router;

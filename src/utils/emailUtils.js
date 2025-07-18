@@ -1,6 +1,9 @@
 // C:\reactjs node mongodb\pharmacie-backend\src\utils\emailUtils.js
 
 const nodemailer = require('nodemailer');
+const transporter = require('./transporter'); // ton transporter nodemailer
+
+
 
 // Configuration du transporteur email
 const createTransporter = () => {
@@ -24,8 +27,7 @@ const sendEmail = async (to, subject, html) => {
       subject,
       html
     };
-
-    const info = await transporter.sendMail(mailOptions);
+    const info = await transporter.sendMail(mailOptions); // Utiliser le transporteur importé
     console.log(`✅ Email envoyé à ${to} :`, info.messageId);
     return info;
   } catch (error) {
@@ -33,7 +35,6 @@ const sendEmail = async (to, subject, html) => {
     throw new Error('Échec de l’envoi de l’email');
   }
 };
-
 
 /**
  * Envoie un email de vérification de compte
@@ -302,136 +303,60 @@ const sendPharmacyRequestNotification = async (pharmacieData) => {
   }
 };
 
-// /**
-//  * Envoie un email de confirmation d'approbation à la pharmacie
-//  * @param {Object} pharmacieData - Données de la pharmacie
-//  * @param {string} status - 'approuvee' ou 'rejetee'
-//  * @param {string} motifRejet - Motif en cas de rejet
-//  */
-// const sendPharmacyStatusNotification = async (pharmacieData, status, motifRejet = '') => {
-//   try {
-//     const transporter = createTransporter();
-    
-//     const isApproved = status === 'approuvee';
-//     const subject = isApproved 
-//       ? '✅ Votre pharmacie a été approuvée - PharmOne'
-//       : '❌ Décision concernant votre demande - PharmOne';
-    
-//     const mailOptions = {
-//       from: process.env.EMAIL_FROM || 'PharmOne <julienguenoukpati825@gmail.com>',
-//       to: pharmacieData.email,
-//       subject: subject,
-//       html: `
-//         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
-//           <div style="background: linear-gradient(135deg, ${isApproved ? '#28a745, #20c997' : '#dc3545, #fd7e14'}); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
-//             <h1 style="margin: 0; font-size: 28px;">${isApproved ? '✅ Félicitations !' : '❌ Décision'}</h1>
-//             <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">PharmOne</p>
-//           </div>
-          
-//           <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-//             <h2 style="color: #333; margin-top: 0; font-size: 24px;">Bonjour ${pharmacieData.prenom} ${pharmacieData.nom} 👋</h2>
-            
-//             ${isApproved ? `
-//               <p style="color: #666; line-height: 1.6; font-size: 16px;">
-//                 Excellente nouvelle ! Votre pharmacie <strong>"${pharmacieData.nomPharmacie}"</strong> 
-//                 a été approuvée et est maintenant active sur la plateforme PharmOne. 🎉
-//               </p>
-              
-//               <div style="background: #d4edda; border-left: 4px solid #28a745; padding: 20px; border-radius: 8px; margin: 20px 0;">
-//                 <h3 style="color: #155724; margin-top: 0; font-size: 18px;">🚀 Prochaines étapes :</h3>
-//                 <ul style="color: #155724; margin: 10px 0; line-height: 1.8;">
-//                   <li>Connectez-vous à votre espace pharmacie</li>
-//                   <li>Configurez vos heures d'ouverture</li>
-//                   <li>Définissez vos périodes de garde</li>
-//                   <li>Commencez à gérer votre stock</li>
-//                 </ul>
-//               </div>
-              
-//               <div style="text-align: center; margin: 30px 0;">
-//                 <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" 
-//                    style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
-//                           color: white; 
-//                           padding: 15px 30px; 
-//                           text-decoration: none; 
-//                           border-radius: 25px; 
-//                           font-weight: bold;
-//                           font-size: 16px;
-//                           display: inline-block;
-//                           box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);">
-//                   🏥 Accéder à mon espace
-//                 </a>
-//               </div>
-//             ` : `
-//               <p style="color: #666; line-height: 1.6; font-size: 16px;">
-//                 Nous avons examiné votre demande d'inscription pour la pharmacie 
-//                 <strong>"${pharmacieData.nomPharmacie}"</strong>.
-//               </p>
-              
-//               <div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 20px; border-radius: 8px; margin: 20px 0;">
-//                 <h3 style="color: #721c24; margin-top: 0; font-size: 18px;">❌ Demande non approuvée</h3>
-//                 <p style="color: #721c24; margin: 10px 0; line-height: 1.6;">
-//                   <strong>Motif :</strong> ${motifRejet || 'Les documents fournis nécessitent une vérification supplémentaire.'}
-//                 </p>
-//               </div>
-              
-//               <p style="color: #666; line-height: 1.6; font-size: 16px;">
-//                 Vous pouvez soumettre une nouvelle demande avec les corrections nécessaires.
-//               </p>
-              
-//               <div style="text-align: center; margin: 30px 0;">
-//                 <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/pharmacy/register" 
-//                    style="background: linear-gradient(135deg, #dc3545 0%, #fd7e14 100%); 
-//                           color: white; 
-//                           padding: 15px 30px; 
-//                           text-decoration: none; 
-//                           border-radius: 25px; 
-//                           font-weight: bold;
-//                           font-size: 16px;
-//                           display: inline-block;
-//                           box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);">
-//                   🔄 Nouvelle demande
-//                 </a>
-//               </div>
-//             `}
-            
-//             <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-            
-//             <p style="color: #999; font-size: 12px; text-align: center;">
-//               Pour toute question, contactez notre support à julienguenoukpati825@gmail.com<br>
-//               PharmOne - Votre plateforme pharmaceutique de confiance
-//             </p>
-//           </div>
-//         </div>
-//       `
-//     };
-    
-//     const info = await transporter.sendMail(mailOptions);
-//     console.log(`✅ Email de ${status} envoyé à la pharmacie:`, info.messageId);
-    
-//     return {
-//       success: true,
-//       messageId: info.messageId
-//     };
-    
-//   } catch (error) {
-//     console.error('❌ Erreur email pharmacie:', error);
-//     throw new Error(`Erreur lors de l'envoi de l'email de ${status}`);
-//   }
-// };
-const sendPharmacyRequestStatusEmail = async (recipientEmail, statut) => {
-  const subject = `Mise à jour de votre demande de pharmacie`;
-  const html = `
-    <p>Bonjour,</p>
-    <p>Votre demande d'intégration en tant que pharmacie a été <strong>${statut}</strong>.</p>
-    <p>Merci d'utiliser PharmOne.</p>
-  `;
-  const transporter = createTransporter();
-  await transporter.sendMail({
-    from: process.env.EMAIL_FROM,
-    to: recipientEmail,
-    subject,
-    html
-  });
+
+const sendPharmacyRequestStatusEmail = async (recipientEmail, statut, pharmacyInfo = {}, motDePasse = '') => {
+  try {
+    const isApproved = statut === 'approuvee';
+    const subject = isApproved
+      ? '✅ Votre pharmacie a été approuvée - PharmOne'
+      : '❌ Décision concernant votre demande - PharmOne';
+
+    // FIX: Provide default values if pharmacyInfo is undefined or incomplete
+    const prenom = pharmacyInfo.prenom || 'Cher(e)';
+    const nom = pharmacyInfo.nom || 'demandeur';
+    const nomPharmacie = pharmacyInfo.nomPharmacie || 'votre pharmacie';
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+        <div style="background: linear-gradient(135deg, ${isApproved ? '#28a745, #20c997' : '#dc3545, #fd7e14'}); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+          <h1 style="margin: 0; font-size: 28px;">${isApproved ? '✅ Félicitations !' : '❌ Décision'}</h1>
+          <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">PharmOne</p>
+        </div>
+        <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+          <h2 style="color: #333; margin-top: 0; font-size: 24px;">Bonjour ${prenom} ${nom} 👋</h2>
+          ${isApproved ? `
+            <p style="color: #666; line-height: 1.6; font-size: 16px;">
+              Votre pharmacie <strong>"${nomPharmacie}"</strong> a été approuvée ! 🎉
+              Voici votre mot de passe temporaire : <strong>${motDePasse}</strong>
+            </p>
+            <div style="text-align: center; margin: 30px 0;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}${process.env.PHARMACY_LOGIN_PATH || '/pharmacie/connexion'}"                 style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
+                        color: white; 
+                        padding: 15px 30px; 
+                        text-decoration: none; 
+                        border-radius: 25px; 
+                        font-weight: bold;
+                        font-size: 16px;
+                        display: inline-block;
+                        box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);">
+                🏥 Accéder à mon espace
+              </a>
+            </div>
+          ` : `
+            <p style="color: #666; line-height: 1.6; font-size: 16px;">
+              Votre demande pour <strong>"${nomPharmacie}"</strong> a été rejetée.
+            </p>
+          `}
+        </div>
+      </div>
+    `;
+
+    await sendEmail(recipientEmail, subject, html);
+    console.log(`✅ Email de statut (${statut}) envoyé à :`, recipientEmail);
+  } catch (error) {
+    console.error('❌ Erreur envoi email statut:', error);
+    throw new Error('Erreur lors de l\'envoi de l\'email de statut');
+  }
 };
 
 
@@ -504,21 +429,17 @@ const sendTestEmail = async () => {
 const sendPharmacyApprovalEmail = async (recipientEmail, pharmacyInfo) => {
   try {
     const subject = `Pharmacie approuvée sur PharmOne`;
-
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
         <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
           <h1 style="margin: 0; font-size: 28px;">✅ Félicitations !</h1>
           <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">PharmOne</p>
         </div>
-        
         <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
           <h2 style="color: #333; margin-top: 0; font-size: 24px;">Votre pharmacie a été approuvée ! 🎉</h2>
-          
           <p style="color: #666; line-height: 1.6; font-size: 16px;">
-            Excellente nouvelle ! Votre pharmacie <strong>"${pharmacyInfo.nom}"</strong> a été approuvée et est maintenant active sur la plateforme PharmOne.
+            Votre pharmacie <strong>"${pharmacyInfo.nom}"</strong> est maintenant active sur PharmOne.
           </p>
-          
           <div style="background: #d4edda; border-left: 4px solid #28a745; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <h3 style="color: #155724; margin-top: 0; font-size: 18px;">🔐 Vos informations de connexion :</h3>
             <p style="color: #155724; margin: 10px 0; line-height: 1.8;">
@@ -526,17 +447,8 @@ const sendPharmacyApprovalEmail = async (recipientEmail, pharmacyInfo) => {
               <strong>Mot de passe temporaire :</strong> ${pharmacyInfo.motDePasse}
             </p>
           </div>
-          
-          <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 5px;">
-            <p style="margin: 0; color: #856404; font-size: 14px;">
-              <strong>⚠️ Important :</strong> Vous devrez changer ce mot de passe lors de votre première connexion.
-            </p>
-          </div>
-          
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/login" 
-               style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
-                      color: white; 
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}${process.env.PHARMACY_LOGIN_PATH || '/pharmacie/connexion'}"                      color: white; 
                       padding: 15px 30px; 
                       text-decoration: none; 
                       border-radius: 25px; 
@@ -547,28 +459,12 @@ const sendPharmacyApprovalEmail = async (recipientEmail, pharmacyInfo) => {
               🏥 Accéder à mon espace
             </a>
           </div>
-          
-          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-          
-          <p style="color: #999; font-size: 12px; text-align: center;">
-            Pour toute question, contactez notre support.<br>
-            PharmOne - Votre plateforme pharmaceutique de confiance
-          </p>
         </div>
       </div>
     `;
 
-    const transporter = createTransporter();
-
-    await transporter.sendMail({
-      from: process.env.EMAIL_FROM,
-      to: recipientEmail,
-      subject,
-      html
-    });
-
+    await sendEmail(recipientEmail, subject, html); // Utiliser sendEmail pour la cohérence
     console.log('✅ Email d\'approbation envoyé à:', recipientEmail);
-    
   } catch (error) {
     console.error('❌ Erreur envoi email approbation:', error);
     throw new Error('Erreur lors de l\'envoi de l\'email d\'approbation');
@@ -576,17 +472,84 @@ const sendPharmacyApprovalEmail = async (recipientEmail, pharmacyInfo) => {
 };
 
 
+exports.sendSuppressionRequestEmail = async (pharmacie) => {
+  try {
+    const subject = `Demande de suppression - Pharmacie ${pharmacie.informationsPharmacie.nom}`;
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+        <div style="background: linear-gradient(135deg, #dc3545, #fd7e14); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+          <h1 style="margin: 0; font-size: 28px;">❌ Demande de suppression</h1>
+          <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">PharmOne Admin</p>
+        </div>
+        <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+          <h2 style="color: #333; margin-top: 0; font-size: 24px;">Nouvelle demande de suppression</h2>
+          <p style="color: #666; line-height: 1.6; font-size: 16px;">
+            La pharmacie suivante a demandé la suppression de son compte :
+          </p>
+          <div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p style="color: #721c24; margin: 10px 0; line-height: 1.8;">
+              <strong>Nom :</strong> ${pharmacie.informationsPharmacie.nom}<br>
+              <strong>Email :</strong> ${pharmacie.email}<br>
+              <strong>Numéro :</strong> ${pharmacie.numeroPharmacie}
+            </p>
+          </div>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/pharmacy-requests" 
+               style="background: linear-gradient(135deg, #dc3545 0%, #fd7e14 100%); 
+                      color: white; 
+                      padding: 15px 30px; 
+                      text-decoration: none; 
+                      border-radius: 25px; 
+                      font-weight: bold;
+                      font-size: 16px;
+                      display: inline-block;
+                      box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);">
+              🔍 Examiner la demande
+            </a>
+          </div>
+        </div>
+      </div>
+    `;
+
+    await sendEmail(process.env.ADMIN_EMAIL, subject, html);
+    console.log('✅ Email de demande de suppression envoyé à:', process.env.ADMIN_EMAIL);
+  } catch (error) {
+    console.error('❌ Erreur envoi email suppression:', error);
+    throw new Error('Erreur lors de l\'envoi de l\'email de suppression');
+  }
+};
+const sendPharmacyAccessNotification = async (pharmacieEmail, clientInfo) => {
+  const transporter = createTransporter();
+  const mailOptions = {
+    from: `"PharmOne" <${process.env.EMAIL_FROM}>`,
+    to: pharmacieEmail,
+    subject: 'Connexion à votre compte pharmacie',
+    html: `
+      <p>Bonjour,</p>
+      <p>Un utilisateur client s'est connecté à votre compte pharmacie via l'application PharmOne.</p>
+      <h3>Informations du client :</h3>
+      <ul>
+        <li><strong>Nom :</strong> ${clientInfo.nom}</li>
+        <li><strong>Prénom :</strong> ${clientInfo.prenom}</li>
+        <li><strong>Email :</strong> ${clientInfo.email}</li>
+      </ul>
+      <p>Date de connexion : <strong>${new Date().toLocaleString()}</strong></p>
+      <p>Si cette connexion ne vous semble pas légitime, veuillez contacter l'administration.</p>
+    `
+  };
+
+  await transporter.sendMail(mailOptions);
+};
+
 
 module.exports = {
   sendVerificationEmail,
   sendResetPasswordEmail,
   sendPharmacyRequestNotification,
-  // sendPharmacyStatusNotification,
   testEmailConfiguration,
   sendTestEmail,
   sendPharmacyApprovalEmail,
   sendPharmacyRequestStatusEmail,
-  sendGeneratedPasswordToPharmacy
-
-  
+  sendGeneratedPasswordToPharmacy,
+  sendPharmacyAccessNotification, // ✅ ajoute cette ligne ici
 };

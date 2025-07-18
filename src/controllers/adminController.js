@@ -72,6 +72,8 @@ async function getNextPharmacyNumber() {
  */
 // Dans adminController.js, corrigez l'appel à sendPharmacyApprovalEmail
 
+// Fixed functions from adminController.js
+
 const approvePharmacieRequest = async (req, res) => {
   try {
     const { userId } = req.params;
@@ -112,7 +114,7 @@ const approvePharmacieRequest = async (req, res) => {
         commentaireApprobation: commentaire || 'Demande approuvee',
         approuvePar: req.user._id
       },
-      isVerified: false,
+      isVerified: true,
       isActive: true
     });
 
@@ -129,8 +131,17 @@ const approvePharmacieRequest = async (req, res) => {
     // Envois des emails
     await sendVerificationEmail(info.emailPharmacie, token, info.nomPharmacie);
     await sendGeneratedPasswordToPharmacy(info.emailPharmacie, motDePasseGenere);
-    await sendPharmacyRequestStatusEmail(info.emailPharmacie, 'approuvee');
-    await sendPharmacyRequestStatusEmail(demandeur.email, 'approuvee');
+
+    // FIX: Préparer les informations pour l'email
+    const pharmacyInfoForEmail = {
+      prenom: demandeur.prenom,
+      nom: demandeur.nom,
+      nomPharmacie: info.nomPharmacie
+    };
+
+    // FIX: Passer les bons paramètres à sendPharmacyRequestStatusEmail
+    await sendPharmacyRequestStatusEmail(info.emailPharmacie, 'approuvee', pharmacyInfoForEmail, motDePasseGenere);
+    await sendPharmacyRequestStatusEmail(demandeur.email, 'approuvee', pharmacyInfoForEmail, motDePasseGenere);
 
     // CORRECTION : Passez les bons paramètres à sendPharmacyApprovalEmail
     await sendPharmacyApprovalEmail(info.emailPharmacie, {
@@ -149,11 +160,6 @@ const approvePharmacieRequest = async (req, res) => {
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 };
-
-/**
- * Rejeter une demande de pharmacie
- */
-// Dans adminController.js, corrigez la fonction rejectPharmacieRequest
 
 const rejectPharmacieRequest = async (req, res) => {
   try {
@@ -180,10 +186,18 @@ const rejectPharmacieRequest = async (req, res) => {
     demandeur.demandePharmacie.approuvePar = req.user._id;
     await demandeur.save();
 
-    // CORRECTION : Déplacez l'envoi d'email AVANT le return
+    // FIX: Préparer les informations pour l'email
+    const pharmacyInfoForEmail = {
+      prenom: demandeur.prenom,
+      nom: demandeur.nom,
+      nomPharmacie: demandeur.demandePharmacie.informationsPharmacie?.nomPharmacie || 'Pharmacie'
+    };
+
+    // FIX: Passer les bons paramètres à sendPharmacyRequestStatusEmail
     await sendPharmacyRequestStatusEmail(
       demandeur.demandePharmacie.informationsPharmacie?.emailPharmacie || demandeur.email, 
-      'rejetée'
+      'rejetee',
+      pharmacyInfoForEmail
     );
 
     res.json({ success: true, message: 'Demande rejetée avec succès' });
@@ -192,10 +206,8 @@ const rejectPharmacieRequest = async (req, res) => {
     console.error('❌ Erreur rejet demande pharmacie:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-  
-  // SUPPRIMEZ cette ligne qui est après le } catch et qui ne sera jamais exécutée
-  // await sendPharmacyRequestStatusEmail(demandeur.demandePharmacie.informationsPharmacie?.emailPharmacie || demandeur.email, 'rejetée');
 };
+
 
 /** * Mettre à jour le statut d'une demande de pharmacie
  */

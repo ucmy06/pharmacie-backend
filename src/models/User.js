@@ -45,6 +45,12 @@ numeroPharmacie: {
     samedi: { ouvert: Boolean, debut: String, fin: String },
     dimanche: { ouvert: Boolean, debut: String, fin: String }
   },
+
+demandeSuppression: {
+  type: Boolean,
+  default: false
+},
+
   documentsVerification: [{
     nomFichier: String,
     cheminFichier: String,
@@ -206,6 +212,16 @@ const userSchema = new mongoose.Schema({
         dateUpload: { type: Date, default: Date.now }
       }]
     },
+
+    demandeModification: {
+    nom: String,
+    email: String,
+    numero: String,
+    positionGoogleMaps: String,
+    photo: String,
+    statut: { type: String, enum: ['en_attente', 'approuvee', 'rejetee'], default: 'en_attente' },
+    dateDemande: Date
+  },
     
     createdBy: {
   type: mongoose.Schema.Types.ObjectId,

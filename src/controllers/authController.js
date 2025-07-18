@@ -85,6 +85,9 @@ const register = async (req, res) => {
 /**
  * Vérification de l'email - VERSION AMÉLIORÉE AVEC DEBUG
  */
+/**
+ * Vérification de l'email - VERSION AMÉLIORÉE AVEC GESTION DU DOUBLE APPEL
+ */
 const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
@@ -116,14 +119,24 @@ const verifyEmail = async (req, res) => {
     if (!user) {
       console.log("⚠️ Aucun utilisateur avec ce token ou token expiré");
       
-      // Vérifier si le token existe mais est expiré
-      const expiredUser = await User.findOne({
+      // Vérifier si l'utilisateur existe déjà mais est déjà vérifié
+      const verifiedUser = await User.findOne({
         verificationToken: token
       });
       
-      if (expiredUser) {
-        console.log("⏰ Token trouvé mais expiré pour:", expiredUser.email);
-        console.log("⏰ Expiration:", expiredUser.verificationTokenExpires);
+      if (verifiedUser && verifiedUser.isVerified) {
+        console.log("✅ Utilisateur déjà vérifié:", verifiedUser.email);
+        return res.status(200).json({
+          success: true,
+          message: 'Email déjà vérifié. Votre compte est actif.',
+          code: 'ALREADY_VERIFIED'
+        });
+      }
+      
+      // Vérifier si le token existe mais est expiré
+      if (verifiedUser) {
+        console.log("⏰ Token trouvé mais expiré pour:", verifiedUser.email);
+        console.log("⏰ Expiration:", verifiedUser.verificationTokenExpires);
         console.log("⏰ Maintenant:", new Date(Date.now()));
         
         return res.status(400).json({
@@ -139,6 +152,7 @@ const verifyEmail = async (req, res) => {
         code: 'INVALID_TOKEN'
       });
     }
+
     console.log("✅ Utilisateur trouvé:", user.email);
     console.log("📧 Email déjà vérifié:", user.isVerified);
  
@@ -186,6 +200,12 @@ const verifyEmail = async (req, res) => {
 };
 /**
  * Connexion d'un utilisateur
+ */
+/**
+ * Connexion d'un utilisateur - VERSION CORRIGÉE
+ */
+/**
+ * Connexion d'un utilisateur - VERSION CORRIGÉE ET AMÉLIORÉE
  */
 const login = async (req, res) => {
   try {
@@ -240,25 +260,38 @@ const login = async (req, res) => {
 
     // Générer le token
     const token = generateToken(user);
-// c'est ici que l'on vérifie si le mot de passe est temporaire ?
 
-    // Vérifier si le mot de passe est temporaire
-if (user.motDePasseTemporaire) {
-  return res.json({
-    success: true,
-    message: 'Connexion avec mot de passe temporaire. Veuillez le changer.',
-    motDePasseTemporaire: true,
-    data: {
-      token,
-      user: user.getPublicProfile()
+    // ✅ VÉRIFICATION EXPLICITE DU MOT DE PASSE TEMPORAIRE
+    const isTemporaryPassword = Boolean(user.motDePasseTemporaire);
+    
+    console.log('🔑 Connexion utilisateur:', {
+      email: user.email,
+      role: user.role,
+      motDePasseTemporaire: isTemporaryPassword,
+      rawValue: user.motDePasseTemporaire
+    });
+
+    // ✅ RÉPONSE AVEC MOT DE PASSE TEMPORAIRE
+    if (isTemporaryPassword) {
+      console.log('⚠️ Utilisateur avec mot de passe temporaire:', user.email);
+      return res.status(200).json({
+        success: true,
+        message: 'Connexion avec mot de passe temporaire. Veuillez le changer.',
+        motDePasseTemporaire: true, // ✅ Explicitement true
+        data: {
+          token,
+          user: user.getPublicProfile()
+        }
+      });
     }
-  });
-}
 
-
-    res.json({
+    // ✅ RÉPONSE CONNEXION NORMALE
+    console.log('✅ Connexion normale pour:', user.email, 'Role:', user.role);
+    
+    return res.status(200).json({
       success: true,
       message: 'Connexion réussie',
+      motDePasseTemporaire: false, // ✅ Explicitement false
       data: {
         token,
         user: user.getPublicProfile()
@@ -267,7 +300,7 @@ if (user.motDePasseTemporaire) {
 
   } catch (error) {
     console.error('❌ Erreur connexion:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Erreur lors de la connexion'
     });

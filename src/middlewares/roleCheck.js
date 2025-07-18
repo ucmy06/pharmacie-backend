@@ -10,35 +10,24 @@
 const checkRole = (allowedRoles) => {
   return (req, res, next) => {
     try {
-      // S'assurer que l'utilisateur est authentifié
       if (!req.user) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentification requise'
-        });
+        return res.status(401).json({ success: false, message: 'Authentification requise' });
       }
-      
-      // Convertir en tableau si c'est une chaîne
+
       const roles = Array.isArray(allowedRoles) ? allowedRoles : [allowedRoles];
-      
-      // Vérifier si l'utilisateur a le bon rôle
+
       if (!roles.includes(req.user.role)) {
-        return res.status(403).json({
-          success: false,
-          message: 'Accès refusé. Permissions insuffisantes.'
-        });
+        return res.status(403).json({ success: false, message: 'Accès refusé pour ce rôle' });
       }
-      
+
       next();
     } catch (error) {
-      console.error('❌ Erreur middleware rôle:', error);
-      return res.status(500).json({
-        success: false,
-        message: 'Erreur serveur lors de la vérification des permissions'
-      });
+      console.error('❌ Erreur checkRole:', error);
+      res.status(500).json({ success: false, message: 'Erreur serveur' });
     }
   };
 };
+
 
 /**
  * Middleware spécifique pour les administrateurs
