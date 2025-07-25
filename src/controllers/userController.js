@@ -1,6 +1,8 @@
-//C:\reactjs node mongodb\pharmacie-backend\src\controllers\userController.js
-
+const mongoose = require('mongoose');
+const medicamentSchema = require('../models/Medicament'); // Assurez-vous que le chemin est correct
+const { authenticate, checkRole } = require('../middlewares/auth');
 const { User } = require('../models/User');
+
 /**
  * Obtenir tous les utilisateurs (Admin seulement)
  */
@@ -85,6 +87,45 @@ const getUserById = async (req, res) => {
     
   } catch (error) {
     console.error('❌ Erreur récupération utilisateur:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+};
+
+/**
+ * Obtenir les médicaments pour une pharmacie
+ */
+const getMedicaments = async (req, res) => {
+  try {
+    const pharmacieId = req.params.id;
+    const pharmacie = await User.findById(pharmacieId);
+    if (!pharmacie) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pharmacie non trouvée'
+      });
+    }
+
+    const base = pharmacie.baseMedicament;
+    if (!base) {
+      return res.status(400).json({
+        success: false,
+        message: 'Pharmacie non liée à une base médicament'
+      });
+    }
+
+    const connection = mongoose.connection.useDb(base, { useCache: true });
+    const Medoc = connection.model('Medicament', medicamentSchema, 'medocs');
+
+    const liste = await Medoc.find();
+    res.json({
+      success: true,
+      data: { medicaments: liste }
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération médicaments:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur'
@@ -285,5 +326,6 @@ module.exports = {
   updateUserRole,
   toggleUserStatus,
   deleteUser,
+  getMedicaments, // Add this
   getUserStats
 };

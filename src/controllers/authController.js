@@ -4,7 +4,8 @@ const { User, ConnexionPharmacie } = require('../models/User');
 const { generateToken } = require('../utils/tokenUtils');
 const { sendResetPasswordEmail, sendPharmacyRequestNotification, sendVerificationEmail } = require('../utils/emailUtils');
 const crypto = require('crypto');
-
+const { createDetailedLog } = require('../utils/logUtils'); // Importer la fonction de log
+const { authenticate } = require('../middlewares/auth');
 /**
  * Inscription d'un nouvel utilisateur (client par défaut)
  */
@@ -207,50 +208,78 @@ const verifyEmail = async (req, res) => {
 /**
  * Connexion d'un utilisateur - VERSION CORRIGÉE ET AMÉLIORÉE
  */
+
 const login = async (req, res) => {
   try {
     const { email, motDePasse } = req.body;
 
     // Validation des champs
     if (!email || !motDePasse) {
+      createDetailedLog('CONNEXION_CLIENT_ECHEC', {
+        raison: 'CHAMPS_REQUIS_MANQUANTS',
+        email,
+        headers: req.headers,
+      });
       return res.status(400).json({
         success: false,
-        message: 'Email et mot de passe requis'
+        message: 'Email et mot de passe requis',
       });
     }
+
+    createDetailedLog('CONNEXION_CLIENT_DEBUT', {
+      email,
+      motDePasse: `[MASQUÉ - ${motDePasse.length} caractères]`,
+      headers: req.headers,
+    });
 
     // Trouver l'utilisateur
     const user = await User.findOne({ email });
     if (!user) {
+      createDetailedLog('CONNEXION_CLIENT_ECHEC', {
+        raison: 'UTILISATEUR_NON_TROUVE',
+        email,
+      });
       return res.status(401).json({
         success: false,
-        message: 'Email ou mot de passe incorrect'
+        message: 'Email ou mot de passe incorrect',
       });
     }
 
     // Vérifier le mot de passe
     const isMatch = await user.comparePassword(motDePasse);
     if (!isMatch) {
+      createDetailedLog('CONNEXION_CLIENT_ECHEC', {
+        raison: 'MOT_DE_PASSE_INCORRECT',
+        email,
+      });
       return res.status(401).json({
         success: false,
-        message: 'Email ou mot de passe incorrect'
+        message: 'Email ou mot de passe incorrect',
       });
     }
 
     // Vérifier si le compte est vérifié
     if (!user.isVerified) {
+      createDetailedLog('CONNEXION_CLIENT_ECHEC', {
+        raison: 'EMAIL_NON_VERIFIE',
+        email,
+      });
       return res.status(401).json({
         success: false,
         message: 'Veuillez vérifier votre email avant de vous connecter',
-        code: 'EMAIL_NOT_VERIFIED'
+        code: 'EMAIL_NOT_VERIFIED',
       });
     }
 
     // Vérifier si le compte est actif
     if (!user.isActive) {
+      createDetailedLog('CONNEXION_CLIENT_ECHEC', {
+        raison: 'COMPTE_DESACTIVE',
+        email,
+      });
       return res.status(401).json({
         success: false,
-        message: 'Compte désactivé'
+        message: 'Compte désactivé',
       });
     }
 
@@ -261,48 +290,50 @@ const login = async (req, res) => {
     // Générer le token
     const token = generateToken(user);
 
-    // ✅ VÉRIFICATION EXPLICITE DU MOT DE PASSE TEMPORAIRE
+    // Vérification explicite du mot de passe temporaire
     const isTemporaryPassword = Boolean(user.motDePasseTemporaire);
-    
-    console.log('🔑 Connexion utilisateur:', {
+
+    createDetailedLog('CONNEXION_CLIENT_REUSSIE', {
+      userId: user._id,
       email: user.email,
       role: user.role,
       motDePasseTemporaire: isTemporaryPassword,
-      rawValue: user.motDePasseTemporaire
+      token: `[TOKEN - ${token.length} caractères]`,
     });
 
-    // ✅ RÉPONSE AVEC MOT DE PASSE TEMPORAIRE
+    // Réponse avec mot de passe temporaire
     if (isTemporaryPassword) {
-      console.log('⚠️ Utilisateur avec mot de passe temporaire:', user.email);
       return res.status(200).json({
         success: true,
         message: 'Connexion avec mot de passe temporaire. Veuillez le changer.',
-        motDePasseTemporaire: true, // ✅ Explicitement true
+        motDePasseTemporaire: true,
         data: {
           token,
-          user: user.getPublicProfile()
-        }
+          user: user.getPublicProfile(),
+        },
       });
     }
 
-    // ✅ RÉPONSE CONNEXION NORMALE
-    console.log('✅ Connexion normale pour:', user.email, 'Role:', user.role);
-    
+    // Réponse connexion normale
     return res.status(200).json({
       success: true,
       message: 'Connexion réussie',
-      motDePasseTemporaire: false, // ✅ Explicitement false
+      motDePasseTemporaire: false,
       data: {
         token,
-        user: user.getPublicProfile()
-      }
+        user: user.getPublicProfile(),
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur connexion:', error);
+    createDetailedLog('ERREUR_CONNEXION_CLIENT', {
+      erreur: error.message,
+      stack: error.stack,
+      email: req.body.email,
+    });
     return res.status(500).json({
       success: false,
-      message: 'Erreur lors de la connexion'
+      message: 'Erreur lors de la connexion',
     });
   }
 };

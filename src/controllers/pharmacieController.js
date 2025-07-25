@@ -1,34 +1,19 @@
 // C:\reactjs node mongodb\pharmacie-backend\src\controllers\pharmacieController.js
-
-
 const { User, ConnexionPharmacie } = require('../models/User');
-const { sendPharmacyConnectionNotification } = require('../utils/emailUtils');
-const multer = require('multer');
+const { 
+  sendPharmacyAccessNotification, 
+  sendSuppressionRequestEmail,
+  sendPharmacyModificationRequestNotification 
+} = require('../utils/emailUtils');
+const { uploadPharmacyPhoto, uploadDocuments } = require('../middlewares/multerConfig');
 const path = require('path');
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
-const { generateToken } = require('../utils/tokenUtils');
-const { sendEmailToAdmin } = require('../utils/emailUtils');
-const { sendSuppressionRequestEmail } = require('../utils/emailUtils');
-const { sendPharmacyAccessNotification } = require('../utils/emailUtils');
 const jwt = require('jsonwebtoken');
-const axios = require('axios');
+const mongoose = require('mongoose');
+const { createDetailedLog } = require('../utils/logUtils');
 
-
-
-// Connexion pharmacie
-const createDetailedLog = (action, data, additionalInfo = {}) => {
-  const timestamp = new Date().toISOString();
-  const logEntry = {
-    timestamp,
-    action,
-    data: JSON.parse(JSON.stringify(data)),
-    additionalInfo,
-    mongodbOperation: null,
-  };
-  console.log('🔍 LOG DÉTAILLÉ:', JSON.stringify(logEntry, null, 2));
-  return logEntry;
-};
-
+// Log MongoDB operations
 const logMongoOperation = (operation, query, result = null, error = null) => {
   const logEntry = {
     timestamp: new Date().toISOString(),
@@ -42,6 +27,13 @@ const logMongoOperation = (operation, query, result = null, error = null) => {
   return logEntry;
 };
 
+// Middleware pour upload de documents
+exports.uploadDocuments = uploadDocuments;
+
+// Middleware pour upload de photo
+exports.uploadPharmacyPhoto = uploadPharmacyPhoto;
+
+// Connexion pharmacie
 exports.loginPharmacie = async (req, res) => {
   try {
     const { email, motDePasse, clientConnecte } = req.body;
@@ -50,14 +42,8 @@ exports.loginPharmacie = async (req, res) => {
       email,
       motDePasse: motDePasse ? `[MASQUÉ - ${motDePasse.length} caractères]` : null,
       clientConnecte,
-      headers: req.headers,
-      body: {
-        ...req.body,
-        motDePasse: motDePasse ? `[MASQUÉ - ${motDePasse.length} caractères]` : null,
-      },
     });
 
-    console.log('🔍 RECHERCHE PHARMACIE DANS MONGODB...');
     const mongoQuery = { email, role: 'pharmacie' };
     logMongoOperation('FIND_PHARMACIE', mongoQuery);
 
@@ -72,22 +58,6 @@ exports.loginPharmacie = async (req, res) => {
       return res.status(400).json({ message: 'Email incorrect' });
     }
 
-    logMongoOperation('FIND_PHARMACIE', mongoQuery, {
-      _id: pharmacie._id,
-      email: pharmacie.email,
-      role: pharmacie.role,
-      motDePasseTemporaire: pharmacie.motDePasseTemporaire,
-      pharmacieInfo: pharmacie.pharmacieInfo,
-    });
-
-    createDetailedLog('PHARMACIE_TROUVEE', {
-      pharmacieId: pharmacie._id,
-      email: pharmacie.email,
-      motDePasseTemporaire: pharmacie.motDePasseTemporaire,
-      statutDemande: pharmacie.pharmacieInfo?.statutDemande,
-      motDePasseHashe: pharmacie.motDePasse ? `[HASH - ${pharmacie.motDePasse.length} caractères]` : null,
-    });
-
     if (!pharmacie.pharmacieInfo || pharmacie.pharmacieInfo.statutDemande !== 'approuvee') {
       createDetailedLog('CONNEXION_PHARMACIE_ECHEC', {
         raison: 'PHARMACIE_NON_APPROUVEE',
@@ -96,14 +66,7 @@ exports.loginPharmacie = async (req, res) => {
       return res.status(400).json({ message: 'Pharmacie non approuvée' });
     }
 
-    console.log('🔐 VÉRIFICATION MOT DE PASSE...');
-    createDetailedLog('VERIFICATION_MOT_DE_PASSE', {
-      motDePasseSaisi: motDePasse ? `[MASQUÉ - ${motDePasse.length} caractères]` : null,
-      motDePasseHasheDB: pharmacie.motDePasse ? `[HASH - ${pharmacie.motDePasse.length} caractères]` : null,
-    });
-
-    const isMatch = await pharmacie.comparePassword(motDePasse); // Use schema method
-
+    const isMatch = await pharmacie.comparePassword(motDePasse);
     createDetailedLog('RESULTAT_VERIFICATION_MOT_DE_PASSE', {
       motDePasseValide: isMatch,
       motDePasseTemporaire: pharmacie.motDePasseTemporaire,
@@ -120,11 +83,6 @@ exports.loginPharmacie = async (req, res) => {
     const tokenPayload = { id: pharmacie._id, role: 'pharmacie' };
     const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRE });
 
-    createDetailedLog('TOKEN_GENERE', {
-      payload: tokenPayload,
-      token: token ? `[TOKEN - ${token.length} caractères]` : null,
-    });
-
     if (clientConnecte) {
       if (!clientConnecte._id || !clientConnecte.nom || !clientConnecte.prenom || !clientConnecte.email || !clientConnecte.telephone) {
         createDetailedLog('CONNEXION_PHARMACIE_ECHEC', {
@@ -134,7 +92,6 @@ exports.loginPharmacie = async (req, res) => {
         return res.status(400).json({ message: 'Données client connecté incomplètes' });
       }
 
-      console.log('💾 SAUVEGARDE CONNEXION PHARMACIE...');
       const connexionData = {
         utilisateur: clientConnecte._id,
         pharmacie: pharmacie._id,
@@ -153,30 +110,15 @@ exports.loginPharmacie = async (req, res) => {
 
       const connexionSauvegardee = await ConnexionPharmacie.create(connexionData);
 
-      logMongoOperation('CREATE_CONNEXION_PHARMACIE', connexionData, {
-        _id: connexionSauvegardee._id,
-        dateConnexion: connexionSauvegardee.dateConnexion,
-      });
-
-      createDetailedLog('CONNEXION_PHARMACIE_LOGGEE', {
-        connexionId: connexionSauvegardee._id,
-        clientId: clientConnecte._id,
-        pharmacieId: pharmacie._id,
-      });
-
-      try {
-        await sendPharmacyAccessNotification(pharmacie.email, clientConnecte);
-        console.log('✅ Connexion loggée et notification envoyée');
-      } catch (logError) {
-        console.error('❌ Erreur lors du logging de la connexion:', logError);
-        createDetailedLog('ERREUR_LOGGING_CONNEXION', {
-          erreur: logError.message,
-          stack: logError.stack,
-        });
-      }
+      await sendPharmacyAccessNotification(pharmacie.email, clientConnecte);
     }
 
-    const reponse = {
+    createDetailedLog('CONNEXION_PHARMACIE_REUSSIE', {
+      pharmacieId: pharmacie._id,
+      email: pharmacie.email,
+    });
+
+    res.json({
       token,
       doitChangerMotDePasse: pharmacie.motDePasseTemporaire || false,
       pharmacie: {
@@ -187,16 +129,7 @@ exports.loginPharmacie = async (req, res) => {
         role: pharmacie.role,
         pharmacieInfo: pharmacie.pharmacieInfo,
       },
-    };
-
-    createDetailedLog('CONNEXION_PHARMACIE_REUSSIE', {
-      reponse: {
-        ...reponse,
-        token: token ? `[TOKEN - ${token.length} caractères]` : null,
-      },
     });
-
-    res.json(reponse);
   } catch (error) {
     console.error('❌ Erreur loginPharmacie:', error);
     createDetailedLog('ERREUR_CONNEXION_PHARMACIE', {
@@ -207,6 +140,7 @@ exports.loginPharmacie = async (req, res) => {
   }
 };
 
+// Changer mot de passe initial
 exports.changerMotDePasseInitial = async (req, res) => {
   try {
     const { nouveauMotDePasse } = req.body;
@@ -219,19 +153,6 @@ exports.changerMotDePasseInitial = async (req, res) => {
       return res.status(401).json({ message: 'Utilisateur non authentifié' });
     }
 
-    createDetailedLog('CHANGEMENT_MOT_DE_PASSE_DEBUT', {
-      userId: user._id,
-      userEmail: user.email,
-      nouveauMotDePasse: nouveauMotDePasse ? `[MASQUÉ - ${nouveauMotDePasse.length} caractères]` : null,
-      motDePasseTemporaireActuel: user.motDePasseTemporaire,
-      headers: req.headers,
-      body: {
-        ...req.body,
-        nouveauMotDePasse: nouveauMotDePasse ? `[MASQUÉ - ${nouveauMotDePasse.length} caractères]` : null,
-      },
-    });
-
-    console.log('🔐 VALIDATION NOUVEAU MOT DE PASSE...');
     if (!nouveauMotDePasse || nouveauMotDePasse.length < 6) {
       createDetailedLog('CHANGEMENT_MOT_DE_PASSE_ECHEC', {
         raison: 'MOT_DE_PASSE_TROP_COURT',
@@ -240,41 +161,14 @@ exports.changerMotDePasseInitial = async (req, res) => {
       return res.status(400).json({ message: 'Le mot de passe doit contenir au moins 6 caractères.' });
     }
 
-    console.log('💾 MISE À JOUR DANS MONGODB...');
-    const anciennesValeurs = {
-      motDePasse: user.motDePasse,
-      motDePasseTemporaire: user.motDePasseTemporaire,
-    };
-
     user.motDePasse = nouveauMotDePasse;
     user.motDePasseTemporaire = false;
 
-    const updateData = {
-      userId: user._id,
-      anciennesValeurs: {
-        motDePasse: anciennesValeurs.motDePasse ? `[ANCIEN HASH - ${anciennesValeurs.motDePasse.length} caractères]` : null,
-        motDePasseTemporaire: anciennesValeurs.motDePasseTemporaire,
-      },
-      nouvellesValeurs: {
-        motDePasse: '[EN ATTENTE DE HACHAGE]',
-        motDePasseTemporaire: false,
-      },
-    };
-
-    logMongoOperation('UPDATE_MOT_DE_PASSE', updateData);
-
     await user.save();
-
-    logMongoOperation('UPDATE_MOT_DE_PASSE', updateData, {
-      success: true,
-      userId: user._id,
-      motDePasseTemporaire: user.motDePasseTemporaire,
-    });
 
     createDetailedLog('CHANGEMENT_MOT_DE_PASSE_REUSSI', {
       userId: user._id,
       userEmail: user.email,
-      motDePasseTemporaireApres: user.motDePasseTemporaire,
     });
 
     res.json({ message: 'Mot de passe mis à jour avec succès.' });
@@ -289,154 +183,321 @@ exports.changerMotDePasseInitial = async (req, res) => {
   }
 };
 
-// Nouveau : Changer mot de passe dans le profil (avec ancien mot de passe)
+// Changer mot de passe dans le profil (avec ancien mot de passe)
 exports.updateProfilePassword = async (req, res) => {
   try {
     const { ancienMotDePasse, nouveauMotDePasse } = req.body;
+
     const user = await User.findById(req.user._id);
     if (!user || user.role !== 'pharmacie') {
+      createDetailedLog('UPDATE_PROFILE_PASSWORD_ECHEC', {
+        raison: 'ACCES_NON_AUTORISE',
+        userId: req.user._id,
+      });
       return res.status(403).json({ message: 'Accès non autorisé' });
     }
-    const isMatch = await bcrypt.compare(ancienMotDePasse, user.motDePasse);
+
+    const isMatch = await user.comparePassword(ancienMotDePasse);
     if (!isMatch) {
+      createDetailedLog('UPDATE_PROFILE_PASSWORD_ECHEC', {
+        raison: 'ANCIEN_MOT_DE_PASSE_INCORRECT',
+        userId: user._id,
+      });
       return res.status(400).json({ message: 'Ancien mot de passe incorrect' });
     }
+
     if (!nouveauMotDePasse || nouveauMotDePasse.length < 6) {
+      createDetailedLog('UPDATE_PROFILE_PASSWORD_ECHEC', {
+        raison: 'NOUVEAU_MOT_DE_PASSE_INVALIDE',
+        longueur: nouveauMotDePasse?.length || 0,
+      });
       return res.status(400).json({ message: 'Le nouveau mot de passe doit contenir au moins 6 caractères.' });
     }
-    const salt = await bcrypt.genSalt(10);
-    user.motDePasse = await bcrypt.hash(nouveauMotDePasse, salt);
+
+    user.motDePasse = nouveauMotDePasse;
+    user.motDePasseTemporaire = false;
+
     await user.save();
+
+    createDetailedLog('UPDATE_PROFILE_PASSWORD_REUSSI', {
+      userId: user._id,
+      email: user.email,
+    });
+
     res.json({ message: 'Mot de passe mis à jour avec succès' });
   } catch (error) {
-    console.error('Erreur updateProfilePassword:', error);
+    console.error('❌ Erreur updateProfilePassword:', error);
+    createDetailedLog('ERREUR_UPDATE_PROFILE_PASSWORD', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?._id,
+    });
     res.status(500).json({ message: 'Erreur serveur' });
   }
 };
 
-// exports.changePassword = async (req, res) => {
-//   try {
-//     const { nouveauMotDePasse } = req.body;
-//     const pharmacieId = req.user.id; // Supposant que req.user est défini via un middleware d'authentification
-
-//     const pharmacie = await Pharmacie.findById(pharmacieId);
-//     if (!pharmacie) {
-//       return res.status(404).json({ message: 'Pharmacie non trouvée' });
-//     }
-
-//     // Hacher le nouveau mot de passe
-//     const salt = await bcrypt.genSalt(10);
-//     pharmacie.motDePasse = await bcrypt.hash(nouveauMotDePasse, salt);
-//     pharmacie.doitChangerMotDePasse = false; // Réinitialiser le drapeau
-//     await pharmacie.save();
-
-//     res.json({ message: 'Mot de passe changé avec succès' });
-//   } catch (error) {
-//     console.error('Erreur changePassword:', error);
-//     res.status(500).json({ message: 'Erreur serveur' });
-//   }
-// };
-
-// Changement du mot de passe temporaire
-
-
-
 // Demande de suppression de compte
 exports.demanderSuppression = async (req, res) => {
-  const user = await User.findById(req.user.id);
-  if (!user || user.role !== 'pharmacie') return res.status(403).json({ message: 'Non autorisé.' });
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user || user.role !== 'pharmacie') {
+      createDetailedLog('DEMANDE_SUPPRESSION_ECHEC', {
+        raison: 'ACCES_NON_AUTORISE',
+        userId: req.user._id,
+      });
+      return res.status(403).json({ message: 'Accès non autorisé' });
+    }
 
-  if (user.demandeSuppression) return res.status(400).json({ message: 'Demande déjà envoyée.' });
+    if (user.demandeSuppression) {
+      createDetailedLog('DEMANDE_SUPPRESSION_ECHEC', {
+        raison: 'DEMANDE_DEJA_ENVOYEE',
+        userId: user._id,
+      });
+      return res.status(400).json({ message: 'Demande déjà envoyée.' });
+    }
 
-  user.demandeSuppression = true;
-  await user.save();
+    user.demandeSuppression = {
+      statut: 'en_attente',
+      dateDemande: new Date(),
+    };
+    await user.save();
 
-  await sendSuppressionRequestEmail(user);
+    await sendSuppressionRequestEmail(user);
 
-  res.json({ message: 'Demande de suppression envoyée à l’administrateur.' });
+    createDetailedLog('DEMANDE_SUPPRESSION_REUSSIE', {
+      userId: user._id,
+      email: user.email,
+    });
+
+    res.json({ message: 'Demande de suppression envoyée à l’administrateur.' });
+  } catch (error) {
+    console.error('❌ Erreur demanderSuppression:', error);
+    createDetailedLog('ERREUR_DEMANDE_SUPPRESSION', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?._id,
+    });
+    res.status(500).json({ message: 'Erreur serveur' });
+  }
 };
 
+// Demande de modification de profil
 exports.demanderModification = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     if (!user || user.role !== 'pharmacie') {
+      createDetailedLog('DEMANDE_MODIFICATION_ECHEC', {
+        raison: 'ACCES_NON_AUTORISE',
+        userId: req.user?._id,
+      });
       return res.status(403).json({ message: 'Accès non autorisé' });
     }
 
     const { nom, email, numero, positionGoogleMaps } = req.body;
-    const photo = req.file ? req.file.path : null;
+    if (!nom && !email && !numero && !positionGoogleMaps && !req.file) {
+      createDetailedLog('DEMANDE_MODIFICATION_ECHEC', {
+        raison: 'AUCUNE_DONNEE_FOURNIE',
+        userId: user._id,
+      });
+      return res.status(400).json({ message: 'Aucune donnée à modifier fournie' });
+    }
 
-    // Enregistrer la demande de modification (par exemple, dans une collection séparée ou dans user)
-    user.demandeModification = {
+    if (req.file && (!req.file.mimetype.startsWith('image/') || req.file.size > 5 * 1024 * 1024)) {
+      createDetailedLog('DEMANDE_MODIFICATION_ECHEC', {
+        raison: 'FICHIER_INVALIDE',
+        userId: user._id,
+        mimetype: req.file.mimetype,
+        size: req.file.size,
+      });
+      return res.status(400).json({ message: 'Le fichier doit être une image de moins de 5MB' });
+    }
+
+    const photo = req.file
+      ? {
+          nomFichier: req.file.originalname,
+          cheminFichier: `Uploads/pharmacies/${req.file.filename}`,
+          typeFichier: req.file.mimetype,
+          tailleFichier: req.file.size,
+          dateUpload: new Date(),
+        }
+      : null; // ✅ Ne pas réutiliser user.pharmacieInfo.photoPharmacie
+
+    user.demandePharmacie = user.demandePharmacie || {};
+    user.demandePharmacie.demandeModification = {
       nom: nom || user.nom,
       email: email || user.email,
       numero: numero || user.telephone,
-      positionGoogleMaps: positionGoogleMaps || user.pharmacieInfo?.adresseGoogleMaps,
-      photo: photo || user.pharmacieInfo?.photo,
+      positionGoogleMaps: positionGoogleMaps || user.pharmacieInfo?.adresseGoogleMaps || '',
+      photo: photo || null, // ✅ Utiliser null si aucune photo
       statut: 'en_attente',
-      dateDemande: new Date()
+      dateDemande: new Date(),
     };
+
     await user.save();
 
-    // Envoyer une notification à l'admin (optionnel)
-    // await sendModificationRequestEmail(user, adminEmail);
+    await sendPharmacyModificationRequestNotification({
+      nomPharmacie: user.pharmacieInfo.nomPharmacie,
+      prenom: user.prenom,
+      nom: user.nom,
+      email: email || user.email,
+      telephone: numero || user.telephone,
+      adresseGoogleMaps: positionGoogleMaps || user.pharmacieInfo.adresseGoogleMaps,
+      photo: photo || null,
+    });
+
+    createDetailedLog('DEMANDE_MODIFICATION_REUSSIE', {
+      userId: user._id,
+      email: user.email,
+      demandeModification: user.demandePharmacie.demandeModification,
+    });
 
     res.json({ message: 'Demande de modification envoyée avec succès' });
   } catch (error) {
-    console.error('Erreur demanderModification:', error);
+    console.error('❌ Erreur demanderModification:', error);
+    createDetailedLog('ERREUR_DEMANDE_MODIFICATION', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?._id,
+    });
     res.status(500).json({ message: 'Erreur serveur' });
   }
 };
 
 // Mise à jour du profil pharmacie
 exports.updateProfilPharmacie = async (req, res) => {
-  const { nom, localisation, telephone, emailPro, horaires, reseauxSociaux } = req.body;
-
   try {
-    const pharmacie = await User.findByIdAndUpdate(req.user.id, {
-      nom, localisation, telephone, emailPro, horaires, reseauxSociaux
-    }, { new: true });
+    const user = await User.findById(req.user._id);
+    if (!user || user.role !== 'pharmacie') {
+      createDetailedLog('UPDATE_PROFILE_ECHEC', {
+        raison: 'ACCES_NON_AUTORISE',
+        userId: req.user?._id,
+      });
+      return res.status(403).json({ message: 'Accès non autorisé' });
+    }
 
-    res.status(200).json({ message: "Profil mis à jour", pharmacie });
-  } catch (err) {
-    res.status(500).json({ message: "Erreur serveur", error: err.message });
+    const { nomPharmacie, adresseGoogleMaps, telephone, emailPro, horaires, reseauxSociaux } = req.body;
+    let photo = user.pharmacieInfo?.photoPharmacie;
+
+    if (req.file) {
+      if (photo && photo.cheminFichier) {
+        const oldPhotoPath = path.join(__dirname, '../../', photo.cheminFichier);
+        if (fs.existsSync(oldPhotoPath)) {
+          fs.unlinkSync(oldPhotoPath);
+        }
+      }
+
+      photo = {
+        nomFichier: req.file.originalname,
+        cheminFichier: `Uploads/pharmacies/${req.file.filename}`,
+        typeFichier: req.file.mimetype,
+        tailleFichier: req.file.size,
+        dateUpload: new Date(),
+      };
+    }
+
+    user.pharmacieInfo.nomPharmacie = nomPharmacie || user.pharmacieInfo.nomPharmacie;
+    user.pharmacieInfo.adresseGoogleMaps = adresseGoogleMaps || user.pharmacieInfo.adresseGoogleMaps;
+    user.telephone = telephone || user.telephone;
+    user.email = emailPro || user.email;
+    if (horaires) user.pharmacieInfo.heuresOuverture = horaires;
+    if (reseauxSociaux) user.pharmacieInfo.reseauxSociaux = reseauxSociaux;
+    if (photo) user.pharmacieInfo.photoPharmacie = photo;
+
+    await user.save();
+
+    createDetailedLog('UPDATE_PROFILE_REUSSI', {
+      userId: user._id,
+      email: user.email,
+      pharmacieInfo: user.pharmacieInfo,
+    });
+
+    res.json({
+      message: 'Profil mis à jour avec succès',
+      data: {
+        _id: user._id,
+        nom: user.nom,
+        prenom: user.prenom,
+        email: user.email,
+        telephone: user.telephone,
+        pharmacieInfo: user.pharmacieInfo,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erreur updateProfilPharmacie:', error);
+    createDetailedLog('ERREUR_UPDATE_PROFILE', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?._id,
+    });
+    res.status(500).json({ message: 'Erreur serveur' });
   }
 };
 
-
-
-
-
-/**
- * Configuration multer pour l'upload de fichiers
- */
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/pharmacies/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);      
-    cb(null, `${req.user._id}-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Type de fichier non autorisé'));
+// Sauvegarder les documents de vérification
+exports.saveDocuments = async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      createDetailedLog('SAVE_DOCUMENTS_ECHEC', {
+        raison: 'AUCUN_FICHIER_FOURNI',
+        userId: req.user._id,
+      });
+      return res.status(400).json({
+        success: false,
+        message: 'Aucun fichier fourni',
+      });
     }
+
+    const pharmacie = await User.findById(req.user._id);
+    if (!pharmacie || pharmacie.role !== 'pharmacie') {
+      createDetailedLog('SAVE_DOCUMENTS_ECHEC', {
+        raison: 'ACCES_NON_AUTORISE',
+        userId: req.user._id,
+      });
+      return res.status(403).json({ message: 'Accès non autorisé' });
+    }
+
+    const documents = req.files.map(file => ({
+      nomFichier: file.originalname,
+      cheminFichier: `Uploads/documents/${file.filename}`,
+      typeFichier: file.mimetype,
+      tailleFichier: file.size,
+      dateUpload: new Date(),
+      statutVerification: 'en_attente',
+    }));
+
+    pharmacie.pharmacieInfo.documentsVerification.push(...documents);
+    await pharmacie.save();
+
+    createDetailedLog('SAVE_DOCUMENTS_REUSSI', {
+      userId: pharmacie._id,
+      documentsAjoutes: documents.length,
+      totalDocuments: pharmacie.pharmacieInfo.documentsVerification.length,
+    });
+
+    res.json({
+      success: true,
+      message: 'Documents uploadés avec succès',
+      data: {
+        documentsAjoutes: documents.length,
+        totalDocuments: pharmacie.pharmacieInfo.documentsVerification.length,
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erreur saveDocuments:', error);
+    createDetailedLog('ERREUR_SAVE_DOCUMENTS', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?._id,
+    });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur',
+    });
   }
-}).single('photo'); // Pour un seul fichier
+};
 
-
-/**
- * Obtenir toutes les pharmacies actives avec filtres
- */
-const getPharmacies = async (req, res) => {
+// Obtenir toutes les pharmacies actives avec filtres
+exports.getPharmacies = async (req, res) => {
   try {
     const {
       page = 1,
@@ -445,20 +506,19 @@ const getPharmacies = async (req, res) => {
       ville,
       livraisonDisponible,
       estDeGarde,
-      ouvertMaintenant
+      ouvertMaintenant,
     } = req.query;
 
     const filter = {
       role: 'pharmacie',
       'pharmacieInfo.statutDemande': 'approuvee',
-      isActive: true
+      isActive: true,
     };
 
-    // Filtres de recherche
     if (search) {
       filter.$or = [
         { 'pharmacieInfo.nomPharmacie': { $regex: search, $options: 'i' } },
-        { 'pharmacieInfo.adresseGoogleMaps': { $regex: search, $options: 'i' } }
+        { 'pharmacieInfo.adresseGoogleMaps': { $regex: search, $options: 'i' } },
       ];
     }
 
@@ -474,7 +534,6 @@ const getPharmacies = async (req, res) => {
       filter['pharmacieInfo.estDeGarde'] = true;
     }
 
-    // Filtre pour les pharmacies ouvertes maintenant
     if (ouvertMaintenant === 'true') {
       const now = new Date();
       const jour = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'][now.getDay()];
@@ -503,29 +562,28 @@ const getPharmacies = async (req, res) => {
           current: parseInt(page),
           pages: Math.ceil(total / limit),
           total,
-          limit: parseInt(limit)
-        }
-      }
+          limit: parseInt(limit),
+        },
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur récupération pharmacies:', error);
+    createDetailedLog('ERREUR_GET_PHARMACIES', {
+      erreur: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur',
     });
   }
 };
 
-/**
- * Obtenir une pharmacie par ID
- */
+// Obtenir une pharmacie par ID
 exports.getPharmacieById = async (req, res) => {
   try {
     const { pharmacieId } = req.params;
-    console.log('🔍 [getPharmacieById] pharmacieId:', pharmacieId);
 
-    // Valider que pharmacieId est un ObjectId valide
     if (!mongoose.Types.ObjectId.isValid(pharmacieId)) {
       createDetailedLog('GET_PHARMACIE_BY_ID_ECHEC', {
         raison: 'ID_INVALIDE',
@@ -535,8 +593,6 @@ exports.getPharmacieById = async (req, res) => {
     }
 
     const pharmacie = await User.findById(pharmacieId).select('-motDePasse');
-    console.log('🔍 [getPharmacieById] Pharmacie trouvée:', pharmacie ? { id: pharmacie._id, email: pharmacie.email, role: pharmacie.role } : 'NULL');
-
     if (!pharmacie || pharmacie.role !== 'pharmacie') {
       createDetailedLog('GET_PHARMACIE_BY_ID_ECHEC', {
         raison: 'PHARMACIE_NON_TROUVEE',
@@ -567,44 +623,47 @@ exports.getPharmacieById = async (req, res) => {
   }
 };
 
-/**
- * Connexion utilisateur à une pharmacie (NOUVELLE FONCTION)
- * Enregistre la connexion et notifie la pharmacie
- */
-const connexionPharmacie = async (req, res) => {
+// Connexion utilisateur à une pharmacie
+exports.connexionPharmacie = async (req, res) => {
   try {
     const { pharmacieId, typeConnexion, message } = req.body;
 
-    // Vérifier que la pharmacie existe et est approuvée
     const pharmacie = await User.findOne({
       _id: pharmacieId,
       role: 'pharmacie',
       'pharmacieInfo.statutDemande': 'approuvee',
-      isActive: true
+      isActive: true,
     });
 
     if (!pharmacie) {
+      createDetailedLog('CONNEXION_PHARMACIE_ECHEC', {
+        raison: 'PHARMACIE_NON_TROUVEE',
+        pharmacieId,
+      });
       return res.status(404).json({
         success: false,
-        message: 'Pharmacie non trouvée ou non approuvée'
+        message: 'Pharmacie non trouvée ou non approuvée',
       });
     }
 
-    // Vérifier que l'utilisateur n'est pas déjà connecté récemment (éviter le spam)
     const connexionRecente = await ConnexionPharmacie.findOne({
       utilisateur: req.user._id,
       pharmacie: pharmacieId,
-      dateConnexion: { $gte: new Date(Date.now() - 5 * 60 * 1000) } // 5 minutes
+      dateConnexion: { $gte: new Date(Date.now() - 5 * 60 * 1000) },
     });
 
     if (connexionRecente) {
+      createDetailedLog('CONNEXION_PHARMACIE_ECHEC', {
+        raison: 'CONNEXION_REPETEE',
+        pharmacieId,
+        utilisateurId: req.user._id,
+      });
       return res.status(400).json({
         success: false,
-        message: 'Vous êtes déjà connecté à cette pharmacie récemment'
+        message: 'Vous êtes déjà connecté à cette pharmacie récemment',
       });
     }
 
-    // Enregistrer la connexion
     const connexion = new ConnexionPharmacie({
       utilisateur: req.user._id,
       pharmacie: pharmacieId,
@@ -614,15 +673,14 @@ const connexionPharmacie = async (req, res) => {
         prenom: req.user.prenom,
         email: req.user.email,
         telephone: req.user.telephone,
-        adresse: req.user.adresse
+        adresse: req.user.adresse,
       },
-      message: message || ''
+      message: message || '',
     });
 
     await connexion.save();
 
-    // Envoyer notification par email à la pharmacie
-    await sendPharmacyConnectionNotification(
+    await sendPharmacyAccessNotification(
       pharmacie.email,
       {
         nom: req.user.nom,
@@ -631,11 +689,11 @@ const connexionPharmacie = async (req, res) => {
         telephone: req.user.telephone,
         adresse: req.user.adresse,
         typeConnexion: typeConnexion || 'consultation',
-        message: message || ''
+        message: message || '',
       },
       {
         nomPharmacie: pharmacie.pharmacieInfo.nomPharmacie,
-        pharmacienNom: `${pharmacie.prenom} ${pharmacie.nom}`
+        pharmacienNom: `${pharmacie.prenom} ${pharmacie.nom}`,
       }
     );
 
@@ -653,38 +711,39 @@ const connexionPharmacie = async (req, res) => {
           livraisonDisponible: pharmacie.pharmacieInfo.livraisonDisponible,
           estDeGarde: pharmacie.pharmacieInfo.estDeGarde,
           heuresOuverture: pharmacie.pharmacieInfo.heuresOuverture,
-          telephone: pharmacie.telephone
-        }
-      }
+          telephone: pharmacie.telephone,
+        },
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur connexion pharmacie:', error);
+    createDetailedLog('ERREUR_CONNEXION_PHARMACIE', {
+      erreur: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la connexion à la pharmacie'
+      message: 'Erreur lors de la connexion à la pharmacie',
     });
   }
 };
 
-/**
- * Obtenir l'historique des connexions de l'utilisateur
- */
-const getMesConnexions = async (req, res) => {
+// Obtenir l'historique des connexions de l'utilisateur
+exports.getMesConnexions = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
 
     const connexions = await ConnexionPharmacie.find({
-      utilisateur: req.user._id
+      utilisateur: req.user._id,
     })
-    .populate('pharmacie', 'nom prenom pharmacieInfo.nomPharmacie pharmacieInfo.adresseGoogleMaps telephone')
-    .sort({ dateConnexion: -1 })
-    .skip(skip)
-    .limit(parseInt(limit));
+      .populate('pharmacie', 'nom prenom pharmacieInfo.nomPharmacie pharmacieInfo.adresseGoogleMaps telephone')
+      .sort({ dateConnexion: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
 
     const total = await ConnexionPharmacie.countDocuments({
-      utilisateur: req.user._id
+      utilisateur: req.user._id,
     });
 
     res.json({
@@ -695,35 +754,35 @@ const getMesConnexions = async (req, res) => {
           current: parseInt(page),
           pages: Math.ceil(total / limit),
           total,
-          limit: parseInt(limit)
-        }
-      }
+          limit: parseInt(limit),
+        },
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur récupération connexions:', error);
+    createDetailedLog('ERREUR_GET_MES_CONNEXIONS', {
+      erreur: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur',
     });
   }
 };
 
-/**
- * Obtenir les connexions des clients à ma pharmacie (pour les pharmacies)
- */
-const getConnexionsClients = async (req, res) => {
+// Obtenir les connexions des clients à ma pharmacie
+exports.getConnexionsClients = async (req, res) => {
   try {
     const { page = 1, limit = 10, dateDebut, dateFin } = req.query;
     const skip = (page - 1) * limit;
 
     const filter = { pharmacie: req.user._id };
 
-    // Filtre par date si spécifié
     if (dateDebut && dateFin) {
       filter.dateConnexion = {
         $gte: new Date(dateDebut),
-        $lte: new Date(dateFin)
+        $lte: new Date(dateFin),
       };
     }
 
@@ -735,15 +794,14 @@ const getConnexionsClients = async (req, res) => {
 
     const total = await ConnexionPharmacie.countDocuments(filter);
 
-    // Statistiques supplémentaires
     const stats = await ConnexionPharmacie.aggregate([
-      { $match: { pharmacie: req.user._id } },
+      { $match: { pharmacie: new mongoose.Types.ObjectId(req.user._id) } },
       {
         $group: {
           _id: '$typeConnexion',
-          count: { $sum: 1 }
-        }
-      }
+          count: { $sum: 1 },
+        },
+      },
     ]);
 
     res.json({
@@ -755,31 +813,36 @@ const getConnexionsClients = async (req, res) => {
           current: parseInt(page),
           pages: Math.ceil(total / limit),
           total,
-          limit: parseInt(limit)
-        }
-      }
+          limit: parseInt(limit),
+        },
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur récupération connexions clients:', error);
+    createDetailedLog('ERREUR_GET_CONNEXIONS_CLIENTS', {
+      erreur: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur',
     });
   }
 };
 
-/**
- * Mettre à jour les horaires d'ouverture (Pharmacie connectée)
- */
-const updateHoraires = async (req, res) => {
+// Mettre à jour les horaires d'ouverture
+exports.updateHoraires = async (req, res) => {
   try {
     const { heuresOuverture } = req.body;
 
     if (!heuresOuverture) {
+      createDetailedLog('UPDATE_HORAIRES_ECHEC', {
+        raison: 'HORAIRES_REQUIS',
+        userId: req.user._id,
+      });
       return res.status(400).json({
         success: false,
-        message: 'Horaires d\'ouverture requis'
+        message: 'Horaires d\'ouverture requis',
       });
     }
 
@@ -789,66 +852,73 @@ const updateHoraires = async (req, res) => {
       { new: true, runValidators: true }
     );
 
+    createDetailedLog('UPDATE_HORAIRES_REUSSI', {
+      userId: pharmacie._id,
+      heuresOuverture: pharmacie.pharmacieInfo.heuresOuverture,
+    });
+
     res.json({
       success: true,
       message: 'Horaires mis à jour avec succès',
-      data: { 
-        heuresOuverture: pharmacie.pharmacieInfo.heuresOuverture 
-      }
+      data: {
+        heuresOuverture: pharmacie.pharmacieInfo.heuresOuverture,
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur mise à jour horaires:', error);
+    createDetailedLog('ERREUR_UPDATE_HORAIRES', {
+      erreur: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur',
     });
   }
 };
 
-/**
- * Définir/Retirer le statut de garde
- */
-const toggleGarde = async (req, res) => {
+// Définir/Retirer le statut de garde
+exports.toggleGarde = async (req, res) => {
   try {
     const { estDeGarde, periodeGarde } = req.body;
 
     const updateData = { 'pharmacieInfo.estDeGarde': estDeGarde };
-    
     if (estDeGarde && periodeGarde) {
       updateData['pharmacieInfo.periodeGarde'] = periodeGarde;
     } else if (!estDeGarde) {
       updateData['pharmacieInfo.periodeGarde'] = null;
     }
 
-    const pharmacie = await User.findByIdAndUpdate(
-      req.user._id,
-      updateData,
-      { new: true }
-    );
+    const pharmacie = await User.findByIdAndUpdate(req.user._id, updateData, { new: true });
+
+    createDetailedLog('TOGGLE_GARDE_REUSSI', {
+      userId: pharmacie._id,
+      estDeGarde: pharmacie.pharmacieInfo.estDeGarde,
+    });
 
     res.json({
       success: true,
       message: estDeGarde ? 'Pharmacie mise en garde' : 'Pharmacie retirée de la garde',
-      data: { 
+      data: {
         estDeGarde: pharmacie.pharmacieInfo.estDeGarde,
-        periodeGarde: pharmacie.pharmacieInfo.periodeGarde
-      }
+        periodeGarde: pharmacie.pharmacieInfo.periodeGarde,
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur modification statut garde:', error);
+    createDetailedLog('ERREUR_TOGGLE_GARDE', {
+      erreur: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur',
     });
   }
 };
 
-/**
- * Activer/Désactiver la livraison
- */
-const toggleLivraison = async (req, res) => {
+// Activer/Désactiver la livraison
+exports.toggleLivraison = async (req, res) => {
   try {
     const { livraisonDisponible } = req.body;
 
@@ -858,128 +928,79 @@ const toggleLivraison = async (req, res) => {
       { new: true }
     );
 
+    createDetailedLog('TOGGLE_LIVRAISON_REUSSI', {
+      userId: pharmacie._id,
+      livraisonDisponible: pharmacie.pharmacieInfo.livraisonDisponible,
+    });
+
     res.json({
       success: true,
       message: `Livraison ${livraisonDisponible ? 'activée' : 'désactivée'}`,
-      data: { 
-        livraisonDisponible: pharmacie.pharmacieInfo.livraisonDisponible 
-      }
+      data: {
+        livraisonDisponible: pharmacie.pharmacieInfo.livraisonDisponible,
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur modification livraison:', error);
+    createDetailedLog('ERREUR_TOGGLE_LIVRAISON', {
+      erreur: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur',
     });
   }
 };
 
-/**
- * Upload de documents de vérification
- */
-const uploadDocuments = async (req, res) => {
-  try {
-    upload.array('documents', 5)(req, res, async (err) => {
-      if (err) {
-        return res.status(400).json({
-          success: false,
-          message: err.message
-        });
-      }
-
-      if (!req.files || req.files.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Aucun fichier fourni'
-        });
-      }
-
-      const documents = req.files.map(file => ({
-        nomFichier: file.originalname,
-        cheminFichier: file.path,
-        typeFichier: file.mimetype,
-        tailleFichier: file.size,
-        dateUpload: new Date(),
-        statutVerification: 'en_attente'
-      }));
-
-      const pharmacie = await User.findById(req.user._id);
-      pharmacie.pharmacieInfo.documentsVerification.push(...documents);
-      await pharmacie.save();
-
-      res.json({
-        success: true,
-        message: 'Documents uploadés avec succès',
-        data: { 
-          documentsAjoutes: documents.length,
-          totalDocuments: pharmacie.pharmacieInfo.documentsVerification.length
-        }
-      });
-    });
-
-  } catch (error) {
-    console.error('❌ Erreur upload documents:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur'
-    });
-  }
-};
-
-/**
- * Obtenir les pharmacies de garde actuelles
- */
-const getPharmaciesDeGarde = async (req, res) => {
+// Obtenir les pharmacies de garde actuelles
+exports.getPharmaciesDeGarde = async (req, res) => {
   try {
     const pharmaciesDeGarde = await User.find({
       role: 'pharmacie',
       'pharmacieInfo.statutDemande': 'approuvee',
       'pharmacieInfo.estDeGarde': true,
-      isActive: true
-    })
-    .select('nom prenom pharmacieInfo.nomPharmacie pharmacieInfo.adresseGoogleMaps pharmacieInfo.periodeGarde pharmacieInfo.livraisonDisponible telephone');
+      isActive: true,
+    }).select('nom prenom pharmacieInfo.nomPharmacie pharmacieInfo.adresseGoogleMaps pharmacieInfo.periodeGarde pharmacieInfo.livraisonDisponible telephone');
 
     res.json({
       success: true,
-      data: { 
+      data: {
         pharmaciesDeGarde,
-        count: pharmaciesDeGarde.length
-      }
+        count: pharmaciesDeGarde.length,
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur récupération pharmacies de garde:', error);
+    createDetailedLog('ERREUR_GET_PHARMACIES_DE_GARDE', {
+      erreur: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur',
     });
   }
 };
 
-// Changer mot de passe initial
-
-
 // Obtenir le profil pharmacie
 exports.getMonProfil = async (req, res) => {
   try {
-    console.log('🔍 [getMonProfil] req.user:', req.user ? { id: req.user._id, email: req.user.email, role: req.user.role } : 'NULL');
     if (!req.user || !req.user._id) {
       createDetailedLog('GET_MON_PROFIL_ECHEC', { raison: 'UTILISATEUR_NON_AUTHENTIFIE' });
       return res.status(401).json({ message: 'Utilisateur non authentifié' });
     }
 
     const user = await User.findById(req.user._id).select('-motDePasse');
-    console.log('🔍 [getMonProfil] Utilisateur trouvé:', user ? { id: user._id, email: user.email, role: user.role } : 'NULL');
-
-    if (!user) {
-      createDetailedLog('GET_MON_PROFIL_ECHEC', { raison: 'UTILISATEUR_NON_TROUVE', userId: req.user._id });
-      return res.status(404).json({ message: 'Utilisateur non trouvé' });
-    }
-
-    if (user.role !== 'pharmacie') {
-      createDetailedLog('GET_MON_PROFIL_ECHEC', { raison: 'ROLE_INCORRECT', role: user.role });
-      return res.status(403).json({ message: 'Accès non autorisé' });
+    if (!user || user.role !== 'pharmacie') {
+      createDetailedLog('GET_MON_PROFIL_ECHEC', {
+        raison: user ? 'ROLE_INCORRECT' : 'UTILISATEUR_NON_TROUVE',
+        role: user?.role,
+        userId: req.user._id,
+      });
+      return res.status(user ? 403 : 404).json({
+        message: user ? 'Accès non autorisé' : 'Utilisateur non trouvé',
+      });
     }
 
     createDetailedLog('GET_MON_PROFIL_REUSSI', {
@@ -995,8 +1016,27 @@ exports.getMonProfil = async (req, res) => {
         nom: user.nom,
         prenom: user.prenom,
         email: user.email,
+        telephone: user.telephone,
         role: user.role,
-        pharmacieInfo: user.pharmacieInfo,
+        pharmacieInfo: {
+          nomPharmacie: user.pharmacieInfo?.nomPharmacie || '',
+          adresseGoogleMaps: user.pharmacieInfo?.adresseGoogleMaps || '',
+          livraisonDisponible: user.pharmacieInfo?.livraisonDisponible || false,
+          estDeGarde: user.pharmacieInfo?.estDeGarde || false,
+          periodeGarde: user.pharmacieInfo?.periodeGarde || { debut: null, fin: null },
+          heuresOuverture: user.pharmacieInfo?.heuresOuverture || {},
+          photoPharmacie: user.pharmacieInfo?.photoPharmacie
+            ? {
+                ...user.pharmacieInfo.photoPharmacie,
+                cheminFichier: user.pharmacieInfo.photoPharmacie.cheminFichier?.replace(/\\/g, '/') || null,
+              }
+            : null,
+          documentsVerification: user.pharmacieInfo?.documentsVerification || [],
+          statutDemande: user.pharmacieInfo?.statutDemande || 'en_attente',
+          dateApprobation: user.pharmacieInfo?.dateApprobation || null,
+          commentaireApprobation: user.pharmacieInfo?.commentaireApprobation || '',
+          approuvePar: user.pharmacieInfo?.approuvePar || null,
+        },
       },
     });
   } catch (error) {
@@ -1010,72 +1050,139 @@ exports.getMonProfil = async (req, res) => {
   }
 };
 
-// Modifier le profil (champs modifiables librement)
-exports.updateMonProfil = async (req, res) => {
-  const { heureOuverture, heureFermeture, livraisonDisponible, joursGarde } = req.body;
-
-  const user = await User.findById(req.user.id);
-  if (!user) return res.status(404).json({ message: 'Utilisateur introuvable' });
-
-  if (heureOuverture !== undefined) user.informationsPharmacie.heureOuverture = heureOuverture;
-  if (heureFermeture !== undefined) user.informationsPharmacie.heureFermeture = heureFermeture;
-  if (livraisonDisponible !== undefined) user.informationsPharmacie.livraisonDisponible = livraisonDisponible;
-  if (joursGarde !== undefined) user.informationsPharmacie.joursGarde = joursGarde;
-
-  await user.save();
-
-  res.json({ message: 'Profil mis à jour.' });
-};
-
-
-/**
- * Recherche géolocalisée de pharmacies (à implémenter plus tard)
- */
-const rechercheGeolocalisee = async (req, res) => {
+// Recherche géolocalisée de pharmacies
+exports.rechercheGeolocalisee = async (req, res) => {
   try {
-    // TODO: Implémenter la recherche par géolocalisation
-    // Nécessite l'ajout de coordonnées GPS dans le modèle
-    
     res.status(501).json({
       success: false,
-      message: 'Fonctionnalité en développement'
+      message: 'Fonctionnalité en développement',
     });
-
   } catch (error) {
     console.error('❌ Erreur recherche géolocalisée:', error);
+    createDetailedLog('ERREUR_RECHERCHE_GEOLOCALISEE', {
+      erreur: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur',
     });
   }
 };
-// At the end of your pharmacieController.js file, replace the module.exports with this:
 
 
-exports.uploadDemandeModification = upload;
+/*
+
+Nouveau : Obtenir les demandes de suppression et de modification
+exports.getPharmacyModifDeleteRequests = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      type = 'all', // 'suppression', 'modification', 'all'
+      statut = 'en_attente',
+    } = req.query;
+
+    if (!req.user || req.user.role !== 'admin') {
+      createDetailedLog('GET_PHARMACY_REQUESTS_ECHEC', {
+        raison: 'ACCES_NON_AUTORISE',
+        userId: req.user?._id,
+        role: req.user?.role,
+      });
+      return res.status(403).json({ message: 'Accès non autorisé' });
+    }
+
+    const skip = (page - 1) * limit;
+
+    let filter = { role: 'pharmacie' };
+
+    if (type === 'suppression') {
+      filter['demandeSuppression.statut'] = statut;
+    } else if (type === 'modification') {
+      filter['demandePharmacie.demandeModification.statut'] = statut;
+    } else {
+      filter.$or = [
+        { 'demandeSuppression.statut': statut },
+        { 'demandePharmacie.demandeModification.statut': statut },
+      ];
+    }
+
+    const requests = await User.find(filter)
+      .select('nom prenom email pharmacieInfo.nomPharmacie demandeSuppression demandePharmacie.demandeModification')
+      .sort({ 
+        'demandePharmacie.demandeModification.dateDemande': -1,
+        'demandeSuppression.dateDemande': -1 
+      })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await User.countDocuments(filter);
+
+    const formattedRequests = requests.map(user => ({
+      _id: user._id,
+      nom: user.nom,
+      prenom: user.prenom,
+      email: user.email,
+      nomPharmacie: user.pharmacieInfo?.nomPharmacie || '',
+      demandeSuppression: user.demandeSuppression || null,
+      demandeModification: user.demandePharmacie?.demandeModification || null,
+    }));
+
+    createDetailedLog('GET_PHARMACY_REQUESTS_REUSSI', {
+      userId: req.user._id,
+      type,
+      statut,
+      total,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        requests: formattedRequests,
+        pagination: {
+          current: parseInt(page),
+          pages: Math.ceil(total / limit),
+          total,
+          limit: parseInt(limit),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erreur getPharmacyModifDeleteRequests:', error);
+    createDetailedLog('ERREUR_GET_PHARMACY_REQUESTS', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?._id,
+    });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur',
+    });
+  }
+}
+
+*/
 
 module.exports = {
-  // Existing exports
-  getPharmacies,
-  connexionPharmacie,
-  getMesConnexions,
-  getConnexionsClients,
-  updateHoraires,
-  toggleGarde,
-  toggleLivraison,
-  uploadDocuments,
-  getPharmaciesDeGarde,
-  rechercheGeolocalisee,
-  
-  // Add the missing exports (these are defined with exports.functionName)
-  changerMotDePasseInitial: exports.changerMotDePasseInitial,
-  demanderSuppression: exports.demanderSuppression,
-  updateProfilPharmacie: exports.updateProfilPharmacie,
-  getMonProfil: exports.getMonProfil,
-  updateMonProfil: exports.updateMonProfil,
-  updateProfilePassword: exports.updateProfilePassword, // Nouvelle fonction
-  demanderModification: exports.demanderModification,
-  uploadDemandeModification: exports.uploadDemandeModification,
+getMonProfil: exports.getMonProfil, // Use exports.getMonProfil
   loginPharmacie: exports.loginPharmacie,
-  getPharmacieById: exports.getPharmacieById // Ajoutez ceci
+  changerMotDePasseInitial: exports.changerMotDePasseInitial,
+  updateProfilePassword: exports.updateProfilePassword,
+  demanderSuppression: exports.demanderSuppression,
+  demanderModification: exports.demanderModification,
+  updateProfilPharmacie: exports.updateProfilPharmacie,
+  saveDocuments: exports.saveDocuments,
+  uploadDocuments: exports.uploadDocuments,
+  uploadPharmacyPhoto: exports.uploadPharmacyPhoto,
+  getPharmacies: exports.getPharmacies,
+  getPharmacieById: exports.getPharmacieById,
+  connexionPharmacie: exports.connexionPharmacie,
+  getMesConnexions: exports.getMesConnexions,
+  getConnexionsClients: exports.getConnexionsClients,
+  updateHoraires: exports.updateHoraires,
+  toggleGarde: exports.toggleGarde,
+  toggleLivraison: exports.toggleLivraison,
+  getPharmaciesDeGarde: exports.getPharmaciesDeGarde,
+  rechercheGeolocalisee: exports.rechercheGeolocalisee
+  // uploadProfileUpdate: exports.uploadProfileUpdate // Add this
 };

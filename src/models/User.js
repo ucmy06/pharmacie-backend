@@ -51,6 +51,14 @@ demandeSuppression: {
   default: false
 },
 
+photoPharmacie: {
+    nomFichier: { type: String, required: false },
+    cheminFichier: { type: String, required: false },
+    typeFichier: { type: String, required: false },
+    tailleFichier: { type: Number, required: false },
+    dateUpload: { type: Date, default: Date.now }
+  },
+
   documentsVerification: [{
     nomFichier: String,
     cheminFichier: String,
@@ -68,9 +76,15 @@ demandeSuppression: {
     enum: ['en_attente', 'approuvee', 'rejetee'],
     default: 'en_attente'
   },
+  baseMedicament: {
+  type: String,
+  default: null, // Ex: 'pharmacie_alpha'
+},
   motifRejet: String,
   dateApprobation: Date,
-  dateRejet: Date
+  dateRejet: Date,
+  commentaireApprobation: String, // Ajout pour correspondre à approvePharmacieRequest
+  approuvePar: { type: mongoose.Schema.Types.ObjectId, ref: 'User' } // Ajout pour correspondre à approvePharmacieRequest
 });
 
 /**
@@ -218,7 +232,17 @@ const userSchema = new mongoose.Schema({
     email: String,
     numero: String,
     positionGoogleMaps: String,
-    photo: String,
+
+
+    
+    photoPharmacie: {
+  nomFichier: { type: String, required: false },
+  cheminFichier: { type: String, required: false },
+  typeFichier: { type: String, required: false },
+  tailleFichier: { type: Number, required: false },
+  dateUpload: { type: Date, default: Date.now }
+},
+
     statut: { type: String, enum: ['en_attente', 'approuvee', 'rejetee'], default: 'en_attente' },
     dateDemande: Date
   },

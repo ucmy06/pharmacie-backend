@@ -8,15 +8,15 @@ const path = require('path');
  */
 const createUploadsDirectories = () => {
   try {
-    const baseDir = path.join(__dirname, '../../uploads');
+    const baseDir = path.join(__dirname, '../../Uploads');
     
     const directories = [
-      'uploads',
-      'uploads/pharmacies',
-      'uploads/pharmacies/photos',
-      'uploads/pharmacies/documents',
-      'uploads/users',
-      'uploads/temp'
+      'Uploads',
+      'Uploads/pharmacies',
+      'Uploads/pharmacies/photos',
+      'Uploads/pharmacies/documents',
+      'Uploads/users',
+      'Uploads/temp'
     ];
 
     directories.forEach(dir => {
@@ -37,10 +37,10 @@ const createUploadsDirectories = () => {
       }
     });
 
-    console.log('🎉 Structure des dossiers uploads créée avec succès!');
+    console.log('🎉 Structure des dossiers Uploads créée avec succès!');
     
   } catch (error) {
-    console.error('❌ Erreur création dossiers uploads:', error);
+    console.error('❌ Erreur création dossiers Uploads:', error);
   }
 };
 

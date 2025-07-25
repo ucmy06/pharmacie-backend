@@ -3,16 +3,14 @@
 const nodemailer = require('nodemailer');
 const transporter = require('./transporter'); // ton transporter nodemailer
 
-
-
 // Configuration du transporteur email
 const createTransporter = () => {
   // Configuration pour Gmail en production et développement
   return nodemailer.createTransport({
     service: 'gmail',
     auth: {
-      user: process.env.EMAIL_USER ,
-      pass: process.env.EMAIL_PASS  // Mot de passe d'application Gmail
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS // Mot de passe d'application Gmail
     }
   });
 };
@@ -27,7 +25,7 @@ const sendEmail = async (to, subject, html) => {
       subject,
       html
     };
-    const info = await transporter.sendMail(mailOptions); // Utiliser le transporteur importé
+    const info = await transporter.sendMail(mailOptions);
     console.log(`✅ Email envoyé à ${to} :`, info.messageId);
     return info;
   } catch (error) {
@@ -303,7 +301,6 @@ const sendPharmacyRequestNotification = async (pharmacieData) => {
   }
 };
 
-
 const sendPharmacyRequestStatusEmail = async (recipientEmail, statut, pharmacyInfo = {}, motDePasse = '') => {
   try {
     const isApproved = statut === 'approuvee';
@@ -311,7 +308,6 @@ const sendPharmacyRequestStatusEmail = async (recipientEmail, statut, pharmacyIn
       ? '✅ Votre pharmacie a été approuvée - PharmOne'
       : '❌ Décision concernant votre demande - PharmOne';
 
-    // FIX: Provide default values if pharmacyInfo is undefined or incomplete
     const prenom = pharmacyInfo.prenom || 'Cher(e)';
     const nom = pharmacyInfo.nom || 'demandeur';
     const nomPharmacie = pharmacyInfo.nomPharmacie || 'votre pharmacie';
@@ -330,15 +326,16 @@ const sendPharmacyRequestStatusEmail = async (recipientEmail, statut, pharmacyIn
               Voici votre mot de passe temporaire : <strong>${motDePasse}</strong>
             </p>
             <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}${process.env.PHARMACY_LOGIN_PATH || '/pharmacie/connexion'}"                 style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
-                        color: white; 
-                        padding: 15px 30px; 
-                        text-decoration: none; 
-                        border-radius: 25px; 
-                        font-weight: bold;
-                        font-size: 16px;
-                        display: inline-block;
-                        box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}${process.env.PHARMACY_LOGIN_PATH || '/pharmacie/connexion'}" 
+               style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
+                      color: white; 
+                      padding: 15px 30px; 
+                      text-decoration: none; 
+                      border-radius: 25px; 
+                      font-weight: bold;
+                      font-size: 16px;
+                      display: inline-block;
+                      box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);">
                 🏥 Accéder à mon espace
               </a>
             </div>
@@ -359,8 +356,6 @@ const sendPharmacyRequestStatusEmail = async (recipientEmail, statut, pharmacyIn
   }
 };
 
-
-
 /**
  * Test de la configuration email
  */
@@ -376,8 +371,11 @@ const testEmailConfiguration = async () => {
     return false;
   }
 };
-// Envoi du mot de passe généré à la pharmacie
-async function sendGeneratedPasswordToPharmacy(email, password) {
+
+/**
+ * Envoie un email avec le mot de passe généré à la pharmacie
+ */
+const sendGeneratedPasswordToPharmacy = async (email, password) => {
   const subject = 'Accès à votre compte Pharmacie';
   const html = `
     <h2>Bienvenue dans PharmOne !</h2>
@@ -386,9 +384,7 @@ async function sendGeneratedPasswordToPharmacy(email, password) {
     <p>Vous pourrez le modifier à votre première connexion.</p>
   `;
   await sendEmail(email, subject, html);
-}
-
-
+};
 
 /**
  * Envoie un email de test
@@ -424,8 +420,10 @@ const sendTestEmail = async () => {
     throw new Error('Erreur lors de l\'envoi de l\'email de test');
   }
 };
-// Dans emailUtils.js, corrigez la fonction sendPharmacyApprovalEmail
 
+/**
+ * Envoie un email d'approbation à la pharmacie
+ */
 const sendPharmacyApprovalEmail = async (recipientEmail, pharmacyInfo) => {
   try {
     const subject = `Pharmacie approuvée sur PharmOne`;
@@ -448,7 +446,9 @@ const sendPharmacyApprovalEmail = async (recipientEmail, pharmacyInfo) => {
             </p>
           </div>
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}${process.env.PHARMACY_LOGIN_PATH || '/pharmacie/connexion'}"                      color: white; 
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}${process.env.PHARMACY_LOGIN_PATH || '/pharmacie/connexion'}" 
+               style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
+                      color: white; 
                       padding: 15px 30px; 
                       text-decoration: none; 
                       border-radius: 25px; 
@@ -463,7 +463,7 @@ const sendPharmacyApprovalEmail = async (recipientEmail, pharmacyInfo) => {
       </div>
     `;
 
-    await sendEmail(recipientEmail, subject, html); // Utiliser sendEmail pour la cohérence
+    await sendEmail(recipientEmail, subject, html);
     console.log('✅ Email d\'approbation envoyé à:', recipientEmail);
   } catch (error) {
     console.error('❌ Erreur envoi email approbation:', error);
@@ -471,10 +471,44 @@ const sendPharmacyApprovalEmail = async (recipientEmail, pharmacyInfo) => {
   }
 };
 
-
-exports.sendSuppressionRequestEmail = async (pharmacie) => {
+/**
+ * Envoie un email de notification pour une connexion à une pharmacie
+ */
+const sendPharmacyAccessNotification = async (pharmacieEmail, clientInfo) => {
   try {
-    const subject = `Demande de suppression - Pharmacie ${pharmacie.informationsPharmacie.nom}`;
+    const transporter = createTransporter();
+    const mailOptions = {
+      from: `"PharmOne" <${process.env.EMAIL_FROM}>`,
+      to: pharmacieEmail,
+      subject: 'Connexion à votre compte pharmacie',
+      html: `
+        <p>Bonjour,</p>
+        <p>Un utilisateur client s'est connecté à votre compte pharmacie via l'application PharmOne.</p>
+        <h3>Informations du client :</h3>
+        <ul>
+          <li><strong>Nom :</strong> ${clientInfo.nom}</li>
+          <li><strong>Prénom :</strong> ${clientInfo.prenom}</li>
+          <li><strong>Email :</strong> ${clientInfo.email}</li>
+        </ul>
+        <p>Date de connexion : <strong>${new Date().toLocaleString()}</strong></p>
+        <p>Si cette connexion ne vous semble pas légitime, veuillez contacter l'administration.</p>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log('✅ Notification d\'accès envoyée à:', pharmacieEmail);
+  } catch (error) {
+    console.error('❌ Erreur envoi notification accès:', error);
+    throw new Error('Erreur lors de l\'envoi de la notification d\'accès');
+  }
+};
+
+/**
+ * Envoie un email de notification à l'admin pour une demande de suppression de pharmacie
+ */
+const sendSuppressionRequestEmail = async (pharmacie) => {
+  try {
+    const subject = `Demande de suppression - Pharmacie ${pharmacie.pharmacieInfo.nomPharmacie}`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
         <div style="background: linear-gradient(135deg, #dc3545, #fd7e14); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
@@ -488,9 +522,9 @@ exports.sendSuppressionRequestEmail = async (pharmacie) => {
           </p>
           <div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <p style="color: #721c24; margin: 10px 0; line-height: 1.8;">
-              <strong>Nom :</strong> ${pharmacie.informationsPharmacie.nom}<br>
+              <strong>Nom :</strong> ${pharmacie.pharmacieInfo.nomPharmacie}<br>
               <strong>Email :</strong> ${pharmacie.email}<br>
-              <strong>Numéro :</strong> ${pharmacie.numeroPharmacie}
+              <strong>Numéro :</strong> ${pharmacie.telephone}
             </p>
           </div>
           <div style="text-align: center; margin: 30px 0;">
@@ -518,29 +552,103 @@ exports.sendSuppressionRequestEmail = async (pharmacie) => {
     throw new Error('Erreur lors de l\'envoi de l\'email de suppression');
   }
 };
-const sendPharmacyAccessNotification = async (pharmacieEmail, clientInfo) => {
-  const transporter = createTransporter();
-  const mailOptions = {
-    from: `"PharmOne" <${process.env.EMAIL_FROM}>`,
-    to: pharmacieEmail,
-    subject: 'Connexion à votre compte pharmacie',
-    html: `
-      <p>Bonjour,</p>
-      <p>Un utilisateur client s'est connecté à votre compte pharmacie via l'application PharmOne.</p>
-      <h3>Informations du client :</h3>
-      <ul>
-        <li><strong>Nom :</strong> ${clientInfo.nom}</li>
-        <li><strong>Prénom :</strong> ${clientInfo.prenom}</li>
-        <li><strong>Email :</strong> ${clientInfo.email}</li>
-      </ul>
-      <p>Date de connexion : <strong>${new Date().toLocaleString()}</strong></p>
-      <p>Si cette connexion ne vous semble pas légitime, veuillez contacter l'administration.</p>
-    `
-  };
-
-  await transporter.sendMail(mailOptions);
+/**
+ * Envoie un email de notification à l'admin pour une demande de modification de pharmacie
+ * @param {Object} modificationData - Données de la demande de modification
+ */
+const sendPharmacyModificationRequestNotification = async (modificationData) => {
+  try {
+    const transporter = createTransporter();
+    
+    const adminEmail = process.env.ADMIN_EMAIL || 'julienguenoukpati825@gmail.com';
+    
+    const mailOptions = {
+      from: process.env.EMAIL_FROM || 'PharmOne <julienguenoukpati825@gmail.com>',
+      to: adminEmail,
+      subject: '🏥 Nouvelle demande de modification de pharmacie - PharmOne',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+          <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+            <h1 style="margin: 0; font-size: 28px;">🏥 Demande de modification</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">PharmOne Admin</p>
+          </div>
+          
+          <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+            <h2 style="color: #333; margin-top: 0; font-size: 24px;">Détails de la demande</h2>
+            
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr>
+                  <td style="padding: 10px 0; font-weight: bold; color: #555; width: 40%;">🏪 Nom de la pharmacie:</td>
+                  <td style="padding: 10px 0; color: #333;">${modificationData.nomPharmacie}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 0; font-weight: bold; color: #555;">👤 Responsable:</td>
+                  <td style="padding: 10px 0; color: #333;">${modificationData.prenom} ${modificationData.nom}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 0; font-weight: bold; color: #555;">📧 Email:</td>
+                  <td style="padding: 10px 0; color: #333;">${modificationData.email}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 0; font-weight: bold; color: #555;">📱 Téléphone:</td>
+                  <td style="padding: 10px 0; color: #333;">${modificationData.telephone}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 10px 0; font-weight: bold; color: #555;">📍 Adresse:</td>
+                  <td style="padding: 10px 0; color: #333;">${modificationData.adresseGoogleMaps}</td>
+                </tr>
+                ${modificationData.photo ? `
+                <tr>
+                  <td style="padding: 10px 0; font-weight: bold; color: #555;">🖼️ Nouvelle photo:</td>
+                  <td style="padding: 10px 0; color: #333;">${modificationData.photo.nomFichier}</td>
+                </tr>
+                ` : ''}
+              </table>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/admin/pharmacy-modification-requests" 
+                 style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
+                        color: white; 
+                        padding: 15px 30px; 
+                        text-decoration: none; 
+                        border-radius: 25px; 
+                        font-weight: bold;
+                        font-size: 16px;
+                        display: inline-block;
+                        box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);">
+                🔍 Examiner la demande
+              </a>
+            </div>
+            
+            <p style="color: #666; font-size: 14px; text-align: center; margin-top: 30px;">
+              Connectez-vous à votre interface d'administration pour approuver ou rejeter cette demande de modification.
+            </p>
+            
+            <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+            
+            <p style="color: #999; font-size: 12px; text-align: center;">
+              Notification automatique - PharmOne Admin
+            </p>
+          </div>
+        </div>
+      `
+    };
+    
+    const info = await transporter.sendMail(mailOptions);
+    console.log('✅ Notification de modification admin envoyée:', info.messageId);
+    
+    return {
+      success: true,
+      messageId: info.messageId
+    };
+    
+  } catch (error) {
+    console.error('❌ Erreur notification modification admin:', error);
+    throw new Error('Erreur lors de l\'envoi de la notification de modification admin');
+  }
 };
-
 
 module.exports = {
   sendVerificationEmail,
@@ -551,5 +659,8 @@ module.exports = {
   sendPharmacyApprovalEmail,
   sendPharmacyRequestStatusEmail,
   sendGeneratedPasswordToPharmacy,
-  sendPharmacyAccessNotification, // ✅ ajoute cette ligne ici
+  sendPharmacyAccessNotification,
+  sendSuppressionRequestEmail, // Fixed export
+  sendPharmacyModificationRequestNotification,
+  sendEmail
 };

@@ -1,4 +1,4 @@
-// test.js
+// C:\reactjs node mongodb\pharmacie-backend\src\test.js
 const express = require('express');
 const app = express();
 app.get('/', (req, res) => res.send('OK'));

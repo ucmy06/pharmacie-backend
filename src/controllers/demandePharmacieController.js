@@ -1,122 +1,80 @@
-// src/controllers/demandePharmacieController.js
-
 const { User } = require('../models/User');
 const path = require('path');
-const multer = require('multer');
 const { sendPharmacyRequestNotification } = require('../utils/emailUtils');
 const { verifyToken, extractTokenFromHeader } = require('../utils/tokenUtils');
-const { authenticate } = require('../middlewares/auth');
+const { uploadDemandePharmacie } = require('../middlewares/multerConfig');
 
-// Configuration de stockage des fichiers de vérification
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/documents/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, `${uniqueSuffix}-${file.originalname}`);
-  }
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Seuls les fichiers images ou PDF sont autorisés'));
-    }
-  }
-});
-
-// Middleware exporté
-const uploadDocuments = multer({
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
-      cb(null, true);
-    } else {
-      cb(new Error('Seuls les fichiers images ou PDF sont autorisés'));
-    }
-  }
-}).fields([
-  { name: 'photoPharmacie', maxCount: 1 },
-  { name: 'documentsVerification', maxCount: 5 }
-]);
-
-// POST /api/demandes-pharmacie
 const creerDemandePharmacie = async (req, res) => {
   try {
-      console.log("🟢 Fichiers reçus :", req.files);
-    console.log("🟢 Données reçues :", req.body);
-    console.log("🟢 Utilisateur :", req.user);
-
+    console.log('🟢 Fichiers reçus :', {
+      photoPharmacie: req.files?.photoPharmacie?.[0],
+      documentsVerification: req.files?.documentsVerification,
+    });
+    console.log('🟢 Données reçues :', req.body);
+    console.log('🟢 Utilisateur :', req.user);
 
     const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
 
-    // if (user.demandePharmacie && user.demandePharmacie.statutDemande !== 'aucune') {
-    //   return res.status(400).json({
-    //     success: false,
-    //     message: 'Une demande est déjà en cours ou traitée.'
-    //   });
-    // }
-
-    
-     const {
-      nomPharmacie,
-      adresseGoogleMaps,
-      emailPharmacie,
-      telephonePharmacie
-    } = req.body;
-
+    const { nomPharmacie, adresseGoogleMaps, emailPharmacie, telephonePharmacie } = req.body;
     const documentsVerification = req.files['documentsVerification'] || [];
     const photoPharmacieFile = req.files['photoPharmacie']?.[0] || null;
 
-    if (!nomPharmacie || !adresseGoogleMaps || !emailPharmacie || !telephonePharmacie || documentsVerification.length === 0) {
+    if (
+      !nomPharmacie ||
+      !adresseGoogleMaps ||
+      !emailPharmacie ||
+      !telephonePharmacie ||
+      documentsVerification.length === 0 ||
+      !photoPharmacieFile
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Tous les champs requis doivent être remplis.'
+        message: 'Tous les champs requis doivent être remplis, y compris la photo de la pharmacie.',
       });
     }
 
-    const docs = documentsVerification.map(file => ({
+    const docs = documentsVerification.map((file) => ({
       nomFichier: file.originalname,
-      cheminFichier: file.path,
+      cheminFichier: `Uploads/documents/${file.filename}`,
       typeFichier: file.mimetype,
       tailleFichier: file.size,
-      dateUpload: new Date()
+      dateUpload: new Date(),
     }));
 
-const photoPharmacie = photoPharmacieFile
-  ? {
+    const photoPharmacie = {
       nomFichier: photoPharmacieFile.originalname,
-      cheminFichier: photoPharmacieFile.path.replace(/\\/g, '/'),
+      cheminFichier: `Uploads/pharmacies/${photoPharmacieFile.filename}`,
       typeFichier: photoPharmacieFile.mimetype,
       tailleFichier: photoPharmacieFile.size,
-      dateUpload: new Date()
-    }
-  : null;
+      dateUpload: new Date(),
+    };
+
+    console.log('📁 Chemins enregistrés :', {
+      photoPharmacie: photoPharmacie.cheminFichier,
+      documentsVerification: docs.map((d) => d.cheminFichier),
+    });
 
     user.demandePharmacie = {
-        statutDemande: 'en_attente',
-        dateDemande: new Date(),
-        createdBy: user._id, // ✅ C'est ici la correction importante
-
+      statutDemande: 'en_attente',
+      dateDemande: new Date(),
+      createdBy: user._id,
       informationsPharmacie: {
         nomPharmacie,
         adresseGoogleMaps,
         emailPharmacie,
         telephonePharmacie,
         photoPharmacie,
-        documentsVerification: docs
-      }
+        documentsVerification: docs,
+      },
     };
 
     await user.save();
 
-    // ✉️ Envoi de notification à l’administrateur
+    console.log('✅ Demande enregistrée:', user.demandePharmacie);
+
     await sendPharmacyRequestNotification({
       nomPharmacie,
       adresseGoogleMaps,
@@ -124,7 +82,7 @@ const photoPharmacie = photoPharmacieFile
       prenom: user.prenom,
       email: user.email,
       telephone: user.telephone,
-      livraisonDisponible: false
+      livraisonDisponible: false,
     });
 
     return res.status(201).json({
@@ -132,21 +90,19 @@ const photoPharmacie = photoPharmacieFile
       message: 'Demande de création de pharmacie envoyée avec succès',
       data: {
         statutDemande: user.demandePharmacie.statutDemande,
-        dateDemande: user.demandePharmacie.dateDemande
-      }
+        dateDemande: user.demandePharmacie.dateDemande,
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur demande pharmacie:', error);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la demande',
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// GET /api/demandes-pharmacie/me
 const getMaDemandePharmacie = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
@@ -154,15 +110,14 @@ const getMaDemandePharmacie = async (req, res) => {
     if (!user || !user.demandePharmacie || user.demandePharmacie.statutDemande === 'aucune') {
       return res.status(404).json({
         success: false,
-        message: 'Aucune demande trouvée.'
+        message: 'Aucune demande trouvée.',
       });
     }
 
     res.json({
       success: true,
-      data: user.demandePharmacie
+      data: user.demandePharmacie,
     });
-
   } catch (error) {
     console.error('❌ Erreur récupération demande pharmacie :', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
@@ -172,5 +127,13 @@ const getMaDemandePharmacie = async (req, res) => {
 module.exports = {
   creerDemandePharmacie,
   getMaDemandePharmacie,
-  uploadDocuments
+  uploadDemandePharmacie,
 };
+
+// Vérifier si une demande existe déjà (décommenter si nécessaire)
+    // if (user.demandePharmacie && user.demandePharmacie.statutDemande !== 'aucune') {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: 'Une demande est déjà en cours ou traitée.'
+    //   });
+    // }
