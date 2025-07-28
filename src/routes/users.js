@@ -8,13 +8,11 @@ const {
   updateUserRole,
   toggleUserStatus,
   deleteUser,
-  getMedicaments, // ✅ Added
   getUserStats
 } = require('../controllers/userController');
 const { authenticate } = require('../middlewares/auth');
 const { requireAdmin, requireAdminOrOwner } = require('../middlewares/roleCheck');
 
-router.get('/:id/medicaments', authenticate, getMedicaments); // ✅ Fixed
 
 // route GET /api/pharmacies/:id/medicaments
 

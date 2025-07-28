@@ -1,12 +1,14 @@
 // C:\reactjs node mongodb\pharmacie-backend\src\routes\pharmacies.js
+
 const express = require('express');
 const router = express.Router();
 const pharmacieController = require('../controllers/pharmacieController');
 const { authenticate } = require('../middlewares/auth');
 const { checkRole, requirePharmacie } = require('../middlewares/roleCheck');
+const { getPharmacieRequestDetails } = require('../controllers/adminController');
 
 
-router.get('/', pharmacieController.getPharmacies);
+router.get('/', authenticate, pharmacieController.getPharmacies);
 router.get('/garde', pharmacieController.getPharmaciesDeGarde);
 router.get('/recherche-geo', pharmacieController.rechercheGeolocalisee);
 router.post('/login', pharmacieController.loginPharmacie);
@@ -22,7 +24,9 @@ router.get('/connexions-clients', authenticate, checkRole(['pharmacie']), pharma
 router.post('/demande-suppression', authenticate, checkRole(['pharmacie']), pharmacieController.demanderSuppression);
 router.put('/update-profile', authenticate, checkRole(['pharmacie']), pharmacieController.uploadPharmacyPhoto, pharmacieController.updateProfilPharmacie);
 router.get('/mon-profil', authenticate, checkRole(['pharmacie']), pharmacieController.getMonProfil);
+router.get('/:pharmacyId', authenticate, getPharmacieRequestDetails);
+
 router.post('/demande-modification', authenticate, checkRole(['pharmacie']), pharmacieController.uploadPharmacyPhoto, pharmacieController.demanderModification);
-router.get('/:pharmacieId', pharmacieController.getPharmacieById);
+router.get('/:pharmacieId', authenticate, pharmacieController.getPharmacieById);
 
 module.exports = router;

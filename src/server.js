@@ -1,3 +1,5 @@
+// C:\reactjs node mongodb\pharmacie-backend\src\server.js
+
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -5,11 +7,21 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const path = require('path');
 const mongoose = require('mongoose');
+const { Server } = require('socket.io');
+const http = require('http');
 const { mongodbLogger, httpLogger, initializeMongoLogging } = require('./middlewares/mongodbLogger');
 const listEndpoints = require('express-list-endpoints');
 const { User, ConnexionPharmacie } = require('./models/User');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:3000',
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
 
 // Sécurité & limites de requêtes
 app.use(cors({
@@ -80,6 +92,18 @@ app.get('/api/images/:type/:filename', (req, res) => {
   });
 });
 
+// WebSocket pour mise à jour des stocks
+io.on('connection', (socket) => {
+  console.log('🔗 Client WebSocket connecté:', socket.id);
+  socket.on('joinPharmacie', (pharmacieId) => {
+    socket.join(pharmacieId);
+    console.log(`🔗 Client rejoint la salle pharmacie: ${pharmacieId}`);
+  });
+  socket.on('disconnect', () => {
+    console.log('🔗 Client WebSocket déconnecté:', socket.id);
+  });
+});
+
 // Initialiser le logging MongoDB
 initializeMongoLogging();
 
@@ -139,7 +163,6 @@ const usersRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
 const pharmaciesRoutes = require('./routes/pharmacies');
 const medicamentsRoutes = require('./routes/medicaments');
-const demandePharmacieRoutes = require('./routes/demandePharmacie');
 const clientRoutes = require('./routes/client');
 
 // Utilisation des routes
@@ -148,7 +171,6 @@ app.use('/api/users', usersRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/pharmacies', pharmaciesRoutes);
 app.use('/api/medicaments', medicamentsRoutes);
-app.use('/api/demande-pharmacie', demandePharmacieRoutes);
 app.use('/api/client', clientRoutes);
 
 // Route de test
@@ -209,23 +231,22 @@ const createDefaultAdmin = async () => {
 };
 
 // Connexion à MongoDB
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/pharmacie_db';
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/pharmacies';
 const PORT = process.env.PORT || 3001;
 
-mongoose.connect(MONGODB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-}).then(async () => {
-  console.log('✅ Connecté à MongoDB');
-  await createDefaultAdmin();
-  app.listen(PORT, () => {
-    console.log(`🚀 API en écoute sur http://localhost:${PORT}`);
-    console.log('📋 Routes définies :', listEndpoints(app));
+mongoose.connect(MONGODB_URI, {})
+  .then(async () => {
+    console.log('✅ Connecté à MongoDB');
+    await createDefaultAdmin();
+    server.listen(PORT, () => {
+      console.log(`🚀 API en écoute sur http://localhost:${PORT}`);
+      console.log('📍 Routes définies :', listEndpoints(app));
+    });
+  })
+  .catch(err => {
+    console.error('❌ Erreur de connexion MongoDB :', err);
+    process.exit(1);
   });
-}).catch(err => {
-  console.error('❌ Erreur de connexion MongoDB :', err);
-  process.exit(1);
-});
 
 // Gestion de l'arrêt du serveur
 process.on('SIGINT', () => {
@@ -235,3 +256,5 @@ process.on('SIGINT', () => {
     process.exit(0);
   });
 });
+
+module.exports = { server, io };

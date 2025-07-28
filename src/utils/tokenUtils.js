@@ -1,9 +1,7 @@
-// C:\reactjs node mongodb\pharmacie-backend\src\utils\tokenUtils.js
-
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
-// Clé secrète pour JWT (en production, utilise une variable d'environnement)
+// Clé secrète pour JWT
 const JWT_SECRET = process.env.JWT_SECRET || 'pharmone_secret_key_2024_very_secure';
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '30d';
 
@@ -21,10 +19,13 @@ const generateToken = (user) => {
     prenom: user.prenom
   };
   
-  return jwt.sign(payload, JWT_SECRET, {
+  console.log('🔑 [tokenUtils] Génération token pour:', payload);
+  const token = jwt.sign(payload, JWT_SECRET, {
     expiresIn: JWT_EXPIRE,
     issuer: 'PharmOne'
   });
+  console.log('✅ [tokenUtils] Token généré:', token.slice(0, 10) + '...');
+  return token;
 };
 
 /**
@@ -33,10 +34,13 @@ const generateToken = (user) => {
  * @returns {Object} Payload décodé ou null si invalide
  */
 const verifyToken = (token) => {
+  console.log('🔑 [tokenUtils] Vérification token:', token ? token.slice(0, 10) + '...' : 'NULL');
   try {
-    return jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    console.log('✅ [tokenUtils] Token vérifié:', decoded);
+    return decoded;
   } catch (error) {
-    console.error('❌ Token invalide:', error.message);
+    console.error('❌ [tokenUtils] Erreur vérification token:', error.message, error.stack);
     return null;
   }
 };
@@ -46,7 +50,9 @@ const verifyToken = (token) => {
  * @returns {String} Token de réinitialisation
  */
 const generateResetToken = () => {
-  return crypto.randomBytes(32).toString('hex');
+  const token = crypto.randomBytes(32).toString('hex');
+  console.log('🔑 [tokenUtils] Token réinitialisation généré:', token.slice(0, 10) + '...');
+  return token;
 };
 
 /**
@@ -55,11 +61,15 @@ const generateResetToken = () => {
  * @returns {String|null} Token ou null
  */
 const extractTokenFromHeader = (authHeader) => {
+  console.log('🔑 [tokenUtils] Extraction token depuis header:', authHeader);
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    console.warn('⚠️ [tokenUtils] Header invalide ou manquant');
     return null;
   }
   
-  return authHeader.substring(7); // Remove 'Bearer ' prefix
+  const token = authHeader.substring(7);
+  console.log('✅ [tokenUtils] Token extrait:', token.slice(0, 10) + '...');
+  return token;
 };
 
 /**
@@ -68,10 +78,13 @@ const extractTokenFromHeader = (authHeader) => {
  * @returns {Boolean} True si expiré
  */
 const isTokenExpired = (decoded) => {
+  console.log('🔑 [tokenUtils] Vérification expiration:', decoded);
   if (!decoded || !decoded.exp) return true;
   
   const currentTime = Math.floor(Date.now() / 1000);
-  return decoded.exp < currentTime;
+  const isExpired = decoded.exp < currentTime;
+  console.log('✅ [tokenUtils] Token expiré:', isExpired);
+  return isExpired;
 };
 
 /**
@@ -85,10 +98,13 @@ const generateRefreshToken = (user) => {
     type: 'refresh'
   };
   
-  return jwt.sign(payload, JWT_SECRET, {
+  console.log('🔑 [tokenUtils] Génération refresh token pour:', payload);
+  const token = jwt.sign(payload, JWT_SECRET, {
     expiresIn: '7d',
     issuer: 'PharmOne'
   });
+  console.log('✅ [tokenUtils] Refresh token généré:', token.slice(0, 10) + '...');
+  return token;
 };
 
 module.exports = {
@@ -100,4 +116,3 @@ module.exports = {
   generateRefreshToken,
   JWT_SECRET
 };
-

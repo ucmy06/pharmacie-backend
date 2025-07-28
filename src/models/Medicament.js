@@ -2,28 +2,28 @@
 const mongoose = require('mongoose');
 
 const medicamentSchema = new mongoose.Schema({
-  nom: { type: String, required: true },
-  nom_generique: { type: String },
-  description: { type: String },
-  categorie: { type: String },
-  prix: { type: Number, required: true },
-  quantite_stock: { type: Number, required: true }, // Changed to match example
+  nom: { type: String, required: true, trim: true },
+  nom_generique: { type: String, trim: true },
+  description: { type: String, trim: true },
+  categorie: { type: String, trim: true },
+  prix: { type: Number, required: true, min: 0 },
+  quantite_stock: { type: Number, required: true, min: 0 },
   date_peremption: { type: Date },
-  dosage: { type: String },
-  forme: { type: String },
+  dosage: { type: String, trim: true }, 
+  forme: { type: String, trim: true },
   est_sur_ordonnance: { type: Boolean, default: false },
-  code_barre: { type: String },
+  code_barre: { type: String, trim: true },
   pharmacie: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User', // pharmacieId
-    required: true
+    ref: 'User',
+    required: false
   },
-  image: { // Added for image support
+  image: {
     nomFichier: { type: String },
     cheminFichier: { type: String },
     typeFichier: { type: String },
     tailleFichier: { type: Number },
-    dateUpload: { type: Date, default: Date.now }
+    dateUpload: { type: Date }
   }
 }, {
   timestamps: true

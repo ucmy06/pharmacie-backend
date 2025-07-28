@@ -12,6 +12,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const { createDetailedLog } = require('../utils/logUtils');
+const axios = require('axios');
+
 
 // Log MongoDB operations
 const logMongoOperation = (operation, query, result = null, error = null) => {
@@ -496,12 +498,44 @@ exports.saveDocuments = async (req, res) => {
   }
 };
 
+
+
+const resolveGoogleMapsUrl = async (url) => {
+  if (!url.includes('maps.app.goo.gl')) return url;
+
+  try {
+    const response = await axios.get(url, {
+      maxRedirects: 0,
+      validateStatus: (status) => status === 302 || status === 301,
+    });
+
+    const redirectUrl = response.headers.location;
+
+    // Exemple : https://www.google.com/maps?q=6.1378,1.2125&...
+    const match = redirectUrl.match(/q=([-.\d]+),([-.\d]+)/);
+    if (match) {
+      return `https://www.google.com/maps?q=${match[1]},${match[2]}`;
+    }
+
+    // Tentative secondaire (format embed parfois redirigé)
+    const matchEmbed = redirectUrl.match(/!3d([-.\d]+)!4d([-.\d]+)/);
+    if (matchEmbed) {
+      return `https://www.google.com/maps?q=${matchEmbed[1]},${matchEmbed[2]}`;
+    }
+
+    return url; // si aucune coordonnée trouvée
+  } catch (error) {
+    console.error('❌ Erreur résolution URL:', error);
+    return url;
+  }
+};
+
 // Obtenir toutes les pharmacies actives avec filtres
 exports.getPharmacies = async (req, res) => {
   try {
     const {
       page = 1,
-      limit = 10,
+      limit = 100,
       search,
       ville,
       livraisonDisponible,
@@ -552,6 +586,10 @@ exports.getPharmacies = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
 
+    for (let pharmacy of pharmacies) {
+      pharmacy.pharmacieInfo.adresseGoogleMaps = await resolveGoogleMapsUrl(pharmacy.pharmacieInfo.adresseGoogleMaps);
+    }
+
     const total = await User.countDocuments(filter);
 
     res.json({
@@ -568,10 +606,6 @@ exports.getPharmacies = async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Erreur récupération pharmacies:', error);
-    createDetailedLog('ERREUR_GET_PHARMACIES', {
-      erreur: error.message,
-      stack: error.stack,
-    });
     res.status(500).json({
       success: false,
       message: 'Erreur serveur',
@@ -731,7 +765,7 @@ exports.connexionPharmacie = async (req, res) => {
 // Obtenir l'historique des connexions de l'utilisateur
 exports.getMesConnexions = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
+    const { page = 1, limit = 50 } = req.query;
     const skip = (page - 1) * limit;
 
     const connexions = await ConnexionPharmacie.find({
@@ -774,7 +808,7 @@ exports.getMesConnexions = async (req, res) => {
 // Obtenir les connexions des clients à ma pharmacie
 exports.getConnexionsClients = async (req, res) => {
   try {
-    const { page = 1, limit = 10, dateDebut, dateFin } = req.query;
+    const { page = 1, limit = 50, dateDebut, dateFin } = req.query;
     const skip = (page - 1) * limit;
 
     const filter = { pharmacie: req.user._id };
@@ -1071,97 +1105,7 @@ exports.rechercheGeolocalisee = async (req, res) => {
 };
 
 
-/*
 
-Nouveau : Obtenir les demandes de suppression et de modification
-exports.getPharmacyModifDeleteRequests = async (req, res) => {
-  try {
-    const {
-      page = 1,
-      limit = 10,
-      type = 'all', // 'suppression', 'modification', 'all'
-      statut = 'en_attente',
-    } = req.query;
-
-    if (!req.user || req.user.role !== 'admin') {
-      createDetailedLog('GET_PHARMACY_REQUESTS_ECHEC', {
-        raison: 'ACCES_NON_AUTORISE',
-        userId: req.user?._id,
-        role: req.user?.role,
-      });
-      return res.status(403).json({ message: 'Accès non autorisé' });
-    }
-
-    const skip = (page - 1) * limit;
-
-    let filter = { role: 'pharmacie' };
-
-    if (type === 'suppression') {
-      filter['demandeSuppression.statut'] = statut;
-    } else if (type === 'modification') {
-      filter['demandePharmacie.demandeModification.statut'] = statut;
-    } else {
-      filter.$or = [
-        { 'demandeSuppression.statut': statut },
-        { 'demandePharmacie.demandeModification.statut': statut },
-      ];
-    }
-
-    const requests = await User.find(filter)
-      .select('nom prenom email pharmacieInfo.nomPharmacie demandeSuppression demandePharmacie.demandeModification')
-      .sort({ 
-        'demandePharmacie.demandeModification.dateDemande': -1,
-        'demandeSuppression.dateDemande': -1 
-      })
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const total = await User.countDocuments(filter);
-
-    const formattedRequests = requests.map(user => ({
-      _id: user._id,
-      nom: user.nom,
-      prenom: user.prenom,
-      email: user.email,
-      nomPharmacie: user.pharmacieInfo?.nomPharmacie || '',
-      demandeSuppression: user.demandeSuppression || null,
-      demandeModification: user.demandePharmacie?.demandeModification || null,
-    }));
-
-    createDetailedLog('GET_PHARMACY_REQUESTS_REUSSI', {
-      userId: req.user._id,
-      type,
-      statut,
-      total,
-    });
-
-    res.json({
-      success: true,
-      data: {
-        requests: formattedRequests,
-        pagination: {
-          current: parseInt(page),
-          pages: Math.ceil(total / limit),
-          total,
-          limit: parseInt(limit),
-        },
-      },
-    });
-  } catch (error) {
-    console.error('❌ Erreur getPharmacyModifDeleteRequests:', error);
-    createDetailedLog('ERREUR_GET_PHARMACY_REQUESTS', {
-      erreur: error.message,
-      stack: error.stack,
-      userId: req.user?._id,
-    });
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur',
-    });
-  }
-}
-
-*/
 
 module.exports = {
 getMonProfil: exports.getMonProfil, // Use exports.getMonProfil
@@ -1183,6 +1127,5 @@ getMonProfil: exports.getMonProfil, // Use exports.getMonProfil
   toggleGarde: exports.toggleGarde,
   toggleLivraison: exports.toggleLivraison,
   getPharmaciesDeGarde: exports.getPharmaciesDeGarde,
-  rechercheGeolocalisee: exports.rechercheGeolocalisee
-  // uploadProfileUpdate: exports.uploadProfileUpdate // Add this
+  rechercheGeolocalisee: exports.rechercheGeolocalisee,
 };

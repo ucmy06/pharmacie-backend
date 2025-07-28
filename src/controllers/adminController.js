@@ -1,74 +1,118 @@
-// C:\reactjs node mongodb\pharmacie-backend\src\controllers\adminController.js
-const mongoose = require('mongoose'); // ✅ Keep for database operations
+const mongoose = require('mongoose');
 const Counter = require('../models/Counter');
 const { User } = require('../models/User');
+const Medicament = require('../models/Medicament');
 const jwt = require('jsonwebtoken');
 const { generateRandomPassword } = require('../utils/passwordUtils');
-const { sendVerificationEmail, sendGeneratedPasswordToPharmacy, sendPharmacyApprovalEmail, sendPharmacyRequestStatusEmail} = require('../utils/emailUtils');
+const { sendVerificationEmail, sendGeneratedPasswordToPharmacy, sendPharmacyApprovalEmail, sendPharmacyRequestStatusEmail } = require('../utils/emailUtils');
 const crypto = require('crypto');
-const { uploadMedicamentImage: upload } = require('../middlewares/multerConfig'); // ✅ Import Multer middleware
-const { createDetailedLog } = require('../utils/logUtils'); // ✅ Importer depuis logUtils
-
+const { uploadMedicamentImage: upload } = require('../middlewares/multerConfig');
+const { createDetailedLog } = require('../utils/logUtils');
+const { DrugImage } = require('../models/DrugImage');
+const DrugImageModel = mongoose.connection.useDb('pharmacies').model('DrugImage', require('../models/DrugImage').schema);
 
 async function getNextPharmacyNumber() {
   try {
     const counter = await Counter.findOneAndUpdate(
-      { name: 'pharmacyNumber' }, // Changé de _id à name
-      { $inc: { value: 1 } }, // Changé de seq à value
+      { name: 'pharmacyNumber' },
+      { $inc: { value: 1 } },
       { new: true, upsert: true }
     );
-    return counter.value; // Changé de seq à value
+    return counter.value;
   } catch (error) {
     console.error('❌ Erreur getNextPharmacyNumber:', error);
     throw new Error('Erreur lors de la génération du numéro de pharmacie');
   }
 }
-/**
- * Obtenir toutes les demandes de pharmacies en attente
- */
-const getPharmacieDemandeCreationRequests = async (req, res) => {
+
+async function getPharmacieDemandeCreationRequests(req, res) {
   try {
-    const { page = 1, limit = 10, statut = 'en_attente' } = req.query;
+    console.log('🟢 [getPharmacyRequests] Récupération des demandes pour:', req.user.email);
+    const { statut = 'en_attente', page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
 
-    const requests = await User.find({
-      role: 'client',
-      'demandePharmacie.statutDemande': statut
+    const users = await User.find({
+      'demandePharmacie.statutDemande': statut,
     })
-      .select('-motDePasse -resetPasswordToken -resetPasswordExpires')
-      .sort({ 'demandePharmacie.dateDemande': -1 })
+      .select('nom prenom email telephone demandePharmacie createdBy')
       .skip(skip)
       .limit(parseInt(limit));
 
+    console.log('✅ [getPharmacyRequests] Demandes trouvées:', users.length);
     const total = await User.countDocuments({
-      role: 'client',
-      'demandePharmacie.statutDemande': statut
+      'demandePharmacie.statutDemande': statut,
+    });
+
+    const formattedData = users.map(user => {
+      if (!user.email || !user.telephone) {
+        console.warn(`⚠️ [getPharmacyRequests] Données incomplètes pour l'utilisateur ${user._id}:`, {
+          email: user.email,
+          telephone: user.telephone,
+        });
+      }
+      return {
+        _id: user._id,
+        nom: user.nom || 'N/A',
+        prenom: user.prenom || 'N/A',
+        email: user.email || 'N/A',
+        telephone: user.telephone || 'N/A',
+        informationsPharmacie: user.demandePharmacie.informationsPharmacie || {},
+        statutDemande: user.demandePharmacie.statutDemande,
+        dateDemande: user.demandePharmacie.dateDemande,
+        createdBy: user.createdBy,
+      };
     });
 
     res.json({
       success: true,
-      data: {
-        requests,
-        pagination: {
-          current: parseInt(page),
-          pages: Math.ceil(total / limit),
-          total,
-          limit: parseInt(limit)
-        }
-      }
+      data: formattedData,
+      pagination: {
+        current: parseInt(page),
+        pages: Math.ceil(total / limit),
+        total,
+        limit: parseInt(limit),
+      },
     });
   } catch (error) {
-    console.error('❌ Erreur récupération demandes pharmacies:', error);
+    console.error('❌ [getPharmacyRequests] Erreur:', error.message, error.stack);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-const getPharmacyModifDeleteRequests = async (req, res) => {
+async function handlePharmacyRequest(req, res) {
+  try {
+    const { requestId, action } = req.params;
+    const { commentaire } = req.body;
+    console.log(`🟢 [handlePharmacyRequest] Action ${action} pour demande:`, requestId);
+
+    if (!['approve', 'reject'].includes(action)) {
+      console.error('❌ [handlePharmacyRequest] Action invalide:', action);
+      return res.status(400).json({ success: false, message: 'Action invalide' });
+    }
+
+    const tempReq = {
+      ...req,
+      params: { userId: requestId },
+      body: { commentaire },
+    };
+
+    if (action === 'approve') {
+      return await approvePharmacieRequest(tempReq, res);
+    } else {
+      return await rejectPharmacieRequest(tempReq, res);
+    }
+  } catch (error) {
+    console.error('❌ [handlePharmacyRequest] Erreur:', error.message, error.stack);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+}
+
+async function getPharmacyModifDeleteRequests(req, res) {
   try {
     const {
       page = 1,
       limit = 10,
-      type = 'all', // 'suppression', 'modification', 'all'
+      type = 'all',
       statut = 'en_attente',
     } = req.query;
 
@@ -100,7 +144,7 @@ const getPharmacyModifDeleteRequests = async (req, res) => {
       .select('nom prenom email pharmacieInfo.nomPharmacie demandeSuppression demandePharmacie.demandeModification')
       .sort({
         'demandePharmacie.demandeModification.dateDemande': -1,
-        'demandeSuppression.dateDemande': -1
+        'demandeSuppression.dateDemande': -1,
       })
       .skip(skip)
       .limit(parseInt(limit));
@@ -151,108 +195,106 @@ const getPharmacyModifDeleteRequests = async (req, res) => {
       message: 'Erreur serveur',
     });
   }
-};
+}
 
+async function getPharmacyMedicaments(req, res) {
+  try {
+    const { pharmacyId } = req.params;
+    // Supprimez la restriction admin pour permettre l'accès aux clients
+    if (!req.user) {
+      return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    }
 
-const uploadMedicamentImage = async (req, res) => {
+    const pharmacie = await User.findById(pharmacyId);
+    if (!pharmacie || pharmacie.role !== 'pharmacie' || !pharmacie.pharmacieInfo.baseMedicament) {
+      return res.status(404).json({ success: false, message: 'Pharmacie ou base de données non trouvée' });
+    }
+
+    const connection = mongoose.connection.useDb(pharmacie.pharmacieInfo.baseMedicament);
+    const MedicamentModel = connection.model('Medicament', Medicament.schema, 'medicaments');
+
+    const medicaments = await MedicamentModel.find({ pharmacie: pharmacyId })
+      .select('nom nom_generique description prix quantite_stock est_sur_ordonnance image')
+      .lean();
+
+    // Ajouter les images depuis DrugImage
+    const medicamentsWithImages = await Promise.all(
+      medicaments.map(async (med) => {
+        const images = await DrugImageModel.find({
+          nom: { $in: [med.nom.toLowerCase(), med.nom_generique?.toLowerCase()].filter(Boolean) }
+        }).lean();
+        return {
+          ...med,
+          images: images.length ? images[0].images : []
+        };
+      })
+    );
+
+    console.log(`🔍 [getPharmacyMedicaments] Médicaments trouvés pour ${pharmacyId}:`, medicamentsWithImages.length);
+
+    res.json({
+      success: true,
+      data: { medicaments: medicamentsWithImages }
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération médicaments:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+}
+
+async function uploadMedicamentImageHandler(req, res) {
   try {
     upload(req, res, async (err) => {
       if (err) {
+        console.error('❌ [multer] Erreur upload:', err.message);
         return res.status(400).json({ success: false, message: err.message });
       }
       if (!req.file) {
         return res.status(400).json({ success: false, message: 'Aucun fichier téléchargé' });
       }
 
-      const { pharmacieId, medicamentId } = req.params;
-      const pharmacie = await User.findById(pharmacieId);
+      const { pharmacyId, medicamentId } = req.params;
+      if (!req.user || req.user.role !== 'admin') {
+        return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+      }
+
+      const pharmacie = await User.findById(pharmacyId);
       if (!pharmacie || pharmacie.role !== 'pharmacie' || !pharmacie.pharmacieInfo.baseMedicament) {
         return res.status(404).json({ success: false, message: 'Pharmacie ou base de données non trouvée' });
       }
 
       const connection = mongoose.connection.useDb(pharmacie.pharmacieInfo.baseMedicament);
-      const Medicament = connection.model('Medicament', require('../models/Medicament'), 'medocs');
+      const MedicamentModel = connection.model('Medicament', Medicament.schema, 'medicaments');
 
-      const medicament = await Medicament.findById(medicamentId);
+      const medicament = await MedicamentModel.findOne({ _id: medicamentId, pharmacie: pharmacyId });
       if (!medicament) {
-        return res.status(404).json({ success: false, message: 'Médicament non trouvé' });
+        return res.status(404).json({ success: false, message: 'Médicament non trouvé ou non associé à cette pharmacie' });
       }
 
-      medicament.image = {
+      const image = {
         nomFichier: req.file.filename,
-        cheminFichier: `/Uploads/medicaments/${req.file.filename}`, // ✅ Updated to lowercase 'uploads'
+        cheminFichier: `/Uploads/medicaments/${req.file.filename}`,
         typeFichier: req.file.mimetype,
         tailleFichier: req.file.size,
-        dateUpload: new Date()
+        dateUpload: new Date(),
       };
 
+      medicament.image = image;
       await medicament.save();
 
       res.json({
         success: true,
         message: 'Image du médicament téléchargée avec succès',
-        data: medicament.image
+        data: image,
       });
     });
   } catch (error) {
     console.error('❌ Erreur upload image médicament:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-
-
-const getMedicaments = async (req, res) => {
-  try {
-    const { pharmacieId } = req.params;
-    const { page = 1, limit = 10, search } = req.query;
-
-    const pharmacie = await User.findById(pharmacieId);
-    if (!pharmacie || pharmacie.role !== 'pharmacie' || !pharmacie.pharmacieInfo.baseMedicament) {
-      return res.status(404).json({ success: false, message: 'Pharmacie ou base de données non trouvée' });
-    }
-
-    const connection = mongoose.connection.useDb(pharmacie.pharmacieInfo.baseMedicament);
-    const Medicament = connection.model('Medicament', require('../models/Medicament'), 'medocs');
-
-    const filter = {};
-    if (search) {
-      filter.$or = [
-        { nom: { $regex: search, $options: 'i' } },
-        { nom_generique: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    const skip = (page - 1) * limit;
-    const medicaments = await Medicament.find(filter)
-      .skip(skip)
-      .limit(parseInt(limit));
-
-    const total = await Medicament.countDocuments(filter);
-
-    res.json({
-      success: true,
-      data: {
-        medicaments,
-        pagination: {
-          current: parseInt(page),
-          pages: Math.ceil(total / limit),
-          total,
-          limit: parseInt(limit)
-        }
-      }
-    });
-  } catch (error) {
-    console.error('❌ Erreur récupération médicaments:', error);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
-  }
-};
-
-/**
- * Approuver une demande de pharmacie
- */
-const approvePharmacieRequest = async (req, res) => {
+async function approvePharmacieRequest(req, res) {
   try {
     const { userId } = req.params;
     const { commentaire } = req.body;
@@ -298,9 +340,9 @@ const approvePharmacieRequest = async (req, res) => {
           jeudi: { ouvert: false, debut: '', fin: '' },
           vendredi: { ouvert: false, debut: '', fin: '' },
           samedi: { ouvert: false, debut: '', fin: '' },
-          dimanche: { ouvert: false, debut: '', fin: '' }
+          dimanche: { ouvert: false, debut: '', fin: '' },
         },
-        periodeGarde: { debut: null, fin: null }
+        periodeGarde: { debut: null, fin: null },
       },
       isVerified: true,
       isActive: true,
@@ -312,45 +354,27 @@ const approvePharmacieRequest = async (req, res) => {
 
     await pharmacie.save();
 
-    // Mettre à jour la demande du client
     demandeur.demandePharmacie.statutDemande = 'approuvee';
     demandeur.demandePharmacie.dateApprobation = new Date();
     await demandeur.save();
 
-    // Envois des emails
-    // await sendVerificationEmail(info.emailPharmacie, token, info.nomPharmacie);
-    // await sendGeneratedPasswordToPharmacy(info.emailPharmacie, motDePasseGenere);
-
-    const pharmacyInfoForEmail = {
-      prenom: demandeur.prenom,
-      nom: demandeur.nom,
-      nomPharmacie: info.nomPharmacie
-    };
-
-    // await sendPharmacyRequestStatusEmail(info.emailPharmacie, 'approuvee', pharmacyInfoForEmail, motDePasseGenere);
-    // await sendPharmacyRequestStatusEmail(demandeur.email, 'approuvee', pharmacyInfoForEmail, motDePasseGenere);
-
     await sendPharmacyApprovalEmail(info.emailPharmacie, {
       nom: info.nomPharmacie,
-      motDePasse: motDePasseGenere
+      motDePasse: motDePasseGenere,
     });
 
     res.json({
       success: true,
       message: 'Pharmacie approuvée et compte créé avec succès',
-      data: { pharmacie: pharmacie.toJSON() }
+      data: { pharmacie: pharmacie.toJSON() },
     });
-    
   } catch (error) {
     console.error('❌ Erreur approbation pharmacie:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-/**
- * Rejeter une demande de pharmacie
- */
-const rejectPharmacieRequest = async (req, res) => {
+async function rejectPharmacieRequest(req, res) {
   try {
     const { userId } = req.params;
     const { commentaire } = req.body;
@@ -378,29 +402,25 @@ const rejectPharmacieRequest = async (req, res) => {
     const pharmacyInfoForEmail = {
       prenom: demandeur.prenom,
       nom: demandeur.nom,
-      nomPharmacie: demandeur.demandePharmacie.informationsPharmacie?.nomPharmacie || 'Pharmacie'
+      nomPharmacie: demandeur.demandePharmacie.informationsPharmacie?.nomPharmacie || 'Pharmacie',
     };
 
     await sendPharmacyRequestStatusEmail(
-      demandeur.demandePharmacie.informationsPharmacie?.emailPharmacie || demandeur.email, 
+      demandeur.demandePharmacie.informationsPharmacie?.emailPharmacie || demandeur.email,
       'rejetee',
       pharmacyInfoForEmail
     );
 
     res.json({ success: true, message: 'Demande rejetée avec succès' });
-    
   } catch (error) {
     console.error('❌ Erreur rejet demande pharmacie:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-
-
-
-const approveModificationRequest = async (req, res) => {
+async function approveModificationRequest(req, res) {
   try {
-    const { userId } = req.params; // Changed from req.body
+    const { userId } = req.params;
     const { commentaire } = req.body;
 
     if (!req.user || req.user.role !== 'admin') {
@@ -445,11 +465,11 @@ const approveModificationRequest = async (req, res) => {
     console.error('❌ Erreur approbation modification:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-const rejectModificationRequest = async (req, res) => {
+async function rejectModificationRequest(req, res) {
   try {
-    const { userId } = req.params; // Changed from req.body
+    const { userId } = req.params;
     const { commentaire } = req.body;
 
     if (!req.user || req.user.role !== 'admin') {
@@ -490,11 +510,11 @@ const rejectModificationRequest = async (req, res) => {
     console.error('❌ Erreur rejet modification:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-const approveSuppressionRequest = async (req, res) => {
+async function approveSuppressionRequest(req, res) {
   try {
-    const { userId } = req.params; // Changed from req.body
+    const { userId } = req.params;
     const { commentaire } = req.body;
 
     if (!req.user || req.user.role !== 'admin') {
@@ -532,11 +552,11 @@ const approveSuppressionRequest = async (req, res) => {
     console.error('❌ Erreur approbation suppression:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-const rejectSuppressionRequest = async (req, res) => {
+async function rejectSuppressionRequest(req, res) {
   try {
-    const { userId } = req.params; // Changed from req.body
+    const { userId } = req.params;
     const { commentaire } = req.body;
 
     if (!req.user || req.user.role !== 'admin') {
@@ -577,12 +597,9 @@ const rejectSuppressionRequest = async (req, res) => {
     console.error('❌ Erreur rejet suppression:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-/**
- * Mettre à jour le statut d'une demande de pharmacie
- */
-const updatePharmacyRequestStatus = async (req, res) => {
+async function updatePharmacyRequestStatus(req, res) {
   try {
     const { userId, statut, commentaire } = req.body;
 
@@ -597,24 +614,21 @@ const updatePharmacyRequestStatus = async (req, res) => {
     const tempReq = {
       ...req,
       params: { userId },
-      body: { commentaire }
+      body: { commentaire },
     };
 
     if (statut === 'approuvee') {
-      return approvePharmacieRequest(tempReq, res);
+      return await approvePharmacieRequest(tempReq, res);
     } else {
-      return rejectPharmacieRequest(tempReq, res);
+      return await rejectPharmacieRequest(tempReq, res);
     }
   } catch (error) {
     console.error('❌ Erreur mise à jour statut:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-/**
- * Obtenir les détails d'une pharmacie
- */
-const getPharmacieRequestDetails = async (req, res) => {
+async function getPharmacieRequestDetails(req, res) {
   try {
     const { pharmacieId } = req.params;
 
@@ -631,12 +645,9 @@ const getPharmacieRequestDetails = async (req, res) => {
     console.error('❌ Erreur détails pharmacie:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-/**
- * Mettre à jour un document de vérification d'une pharmacie
- */
-const updatePharmacieDocuments = async (req, res) => {
+async function updatePharmacieDocuments(req, res) {
   try {
     const { pharmacieId } = req.params;
     const { documentId, statutVerification, commentaireAdmin } = req.body;
@@ -656,28 +667,29 @@ const updatePharmacieDocuments = async (req, res) => {
     document.commentaireAdmin = commentaireAdmin;
     await pharmacie.save();
 
-    res.json({ success: true, message: 'Document mis à jour avec succès', data: { document } });
+    res.json({
+      success: true,
+      message: 'Document mis à jour avec succès',
+      data: { document },
+    });
   } catch (error) {
     console.error('❌ Erreur mise à jour document:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-/**
- * Obtenir les statistiques pour le tableau de bord admin
- */
-const getAdminDashboard = async (req, res) => {
+async function getAdminDashboard(req, res) {
   try {
     const totalUsers = await User.countDocuments();
     const totalClients = await User.countDocuments({ role: 'client' });
     const totalPharmacies = await User.countDocuments({ role: 'pharmacie' });
     const pharmaciesEnAttente = await User.countDocuments({
       role: 'client',
-      'demandePharmacie.statutDemande': 'en_attente'
+      'demandePharmacie.statutDemande': 'en_attente',
     });
     const pharmaciesApprouvees = await User.countDocuments({
       role: 'pharmacie',
-      'pharmacieInfo.statutDemande': 'approuvee'
+      'pharmacieInfo.statutDemande': 'approuvee',
     });
 
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -685,15 +697,15 @@ const getAdminDashboard = async (req, res) => {
 
     const latestRequests = await User.find({
       role: 'client',
-      'demandePharmacie.statutDemande': 'en_attente'
+      'demandePharmacie.statutDemande': 'en_attente',
     })
-      .select('nom prenom demandePharmacie.nomPharmacie demandePharmacie.dateDemande')
+      .select('nom prenom demandePharmacie.informationsPharmacie.nomPharmacie demandePharmacie.dateDemande')
       .sort({ 'demandePharmacie.dateDemande': -1 })
       .limit(5);
 
     const activeUsers = await User.find({
       role: 'client',
-      'statistiques.derniereActivite': { $gte: sevenDaysAgo }
+      'statistiques.derniereActivite': { $gte: sevenDaysAgo },
     })
       .select('nom prenom statistiques.derniereActivite statistiques.nombreCommandes')
       .sort({ 'statistiques.derniereActivite': -1 })
@@ -708,29 +720,26 @@ const getAdminDashboard = async (req, res) => {
           totalPharmacies,
           pharmaciesEnAttente,
           pharmaciesApprouvees,
-          newUsersThisWeek
+          newUsersThisWeek,
         },
         latestRequests,
-        activeUsers
-      }
+        activeUsers,
+      },
     });
   } catch (error) {
     console.error('❌ Erreur tableau de bord admin:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-/**
- * Associer une pharmacie à une base de médicaments
- */
-const associerBaseMedicament = async (req, res) => {
+async function associerBaseMedicament(req, res) {
   const { pharmacyId } = req.params;
   const { nomBaseMedicament } = req.body;
 
   if (!pharmacyId || !nomBaseMedicament) {
     return res.status(400).json({
       success: false,
-      message: 'pharmacyId et nomBaseMedicament sont requis.'
+      message: 'pharmacyId et nomBaseMedicament sont requis.',
     });
   }
 
@@ -754,32 +763,29 @@ const associerBaseMedicament = async (req, res) => {
       pharmacie: {
         id: user._id,
         nom: user.nom,
-        base: user.pharmacieInfo.baseMedicament
-      }
+        base: user.pharmacieInfo.baseMedicament,
+      },
     });
   } catch (error) {
     console.error('❌ Erreur liaison base:', error);
     return res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
 
-/**
- * Obtenir toutes les pharmacies approuvées (recherche et filtre)
- */
-const getApprovedPharmacies = async (req, res) => {
+async function getApprovedPharmacies(req, res) {
   try {
     const { page = 1, limit = 10, search, livraisonDisponible, estDeGarde } = req.query;
 
     const filter = {
       role: 'pharmacie',
       'pharmacieInfo.statutDemande': 'approuvee',
-      isActive: true
+      isActive: true,
     };
 
     if (search) {
       filter.$or = [
         { 'pharmacieInfo.nomPharmacie': { $regex: search, $options: 'i' } },
-        { nom: { $regex: search, $options: 'i' } }
+        { nom: { $regex: search, $options: 'i' } },
       ];
     }
 
@@ -809,15 +815,248 @@ const getApprovedPharmacies = async (req, res) => {
           current: parseInt(page),
           pages: Math.ceil(total / limit),
           total,
-          limit: parseInt(limit)
-        }
-      }
+          limit: parseInt(limit),
+        },
+      },
     });
   } catch (error) {
     console.error('❌ Erreur récupération pharmacies approuvées:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-};
+}
+
+async function uploadDrugImageHandler(req, res) {
+  try {
+    console.log('🔍 [uploadDrugImage] Début traitement');
+    console.log('🔍 [uploadDrugImage] req.body:', req.body);
+    console.log('🔍 [uploadDrugImage] req.files:', req.files);
+    console.log('🔍 [uploadDrugImage] req.file:', req.file);
+
+    const { nom } = req.body;
+    
+    if (!nom) {
+      console.log('❌ [uploadDrugImage] Nom du médicament manquant');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Nom du médicament requis' 
+      });
+    }
+
+    if (!req.files || req.files.length === 0) {
+      console.log('❌ [uploadDrugImage] Aucune image fournie');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Au moins une image est requise' 
+      });
+    }
+
+    console.log(`✅ [uploadDrugImage] Traitement pour médicament: ${nom}`);
+    console.log(`✅ [uploadDrugImage] Nombre d'images: ${req.files.length}`);
+
+    if (req.files.length > 3) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Un maximum de 3 images est autorisé par médicament' 
+      });
+    }
+
+    const DrugImageModel = mongoose.connection.useDb('pharmacies').model('DrugImage', require('../models/DrugImage').schema);
+
+    const imageData = req.files.map(file => ({
+      nomFichier: file.filename,
+      cheminFichier: `/Uploads/medicaments/${file.filename}`,
+      typeFichier: file.mimetype,
+      tailleFichier: file.size,
+      dateUpload: new Date()
+    }));
+
+    console.log('🔍 [uploadDrugImage] Images à sauvegarder:', imageData);
+
+    const nomRecherche = nom.trim().toLowerCase();
+    
+    let drugImage = await DrugImageModel.findOne({ nom: nomRecherche });
+    
+    if (drugImage) {
+      if (drugImage.images.length + req.files.length > 3) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `Ce médicament a déjà ${drugImage.images.length} image(s). Le total ne peut pas dépasser 3 images.` 
+        });
+      }
+      
+      drugImage.images = [...drugImage.images, ...imageData];
+      await drugImage.save();
+      
+      console.log(`✅ [uploadDrugImage] Images ajoutées au médicament existant: ${nom}`);
+    } else {
+      drugImage = new DrugImageModel({
+        nom: nomRecherche,
+        images: imageData
+      });
+      await drugImage.save();
+      
+      console.log(`✅ [uploadDrugImage] Nouveau médicament créé avec images: ${nom}`);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: `${req.files.length} image(s) téléchargée(s) avec succès pour ${nom}`,
+      data: drugImage.images
+    });
+  } catch (error) {
+    console.error('❌ [uploadDrugImage] Erreur:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Erreur serveur lors du téléchargement des images' 
+    });
+  }
+}
+
+async function getAllMedicaments(req, res) {
+  try {
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Accès non autorisé' });
+    }
+
+    const { page = 1, limit = 100, search = '' } = req.query;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    const pharmacies = await User.find({
+      role: 'pharmacie',
+      isActive: true,
+      'pharmacieInfo.baseMedicament': { $exists: true, $ne: null }
+    }).lean();
+
+    if (!pharmacies.length) {
+      return res.status(200).json({
+        success: true,
+        data: { pharmacies: [], totalPages: 0, currentPage: pageNum, totalMedicaments: 0 }
+      });
+    }
+
+    const query = search
+      ? {
+          $or: [
+            { nom: { $regex: search, $options: 'i' } },
+            { nom_generique: { $regex: search, $options: 'i' } },
+            { description: { $regex: search, $options: 'i' } },
+            { categorie: { $regex: search, $options: 'i' } }
+          ]
+        }
+      : {};
+
+    let totalGlobalMedicaments = 0;
+    const pharmacyResults = await Promise.all(
+      pharmacies.map(async (pharmacy) => {
+        const pharmacyName = pharmacy.pharmacieInfo.nomPharmacie;
+        const pharmacyBase = pharmacy.pharmacieInfo.baseMedicament;
+
+        try {
+          const connection = mongoose.connection.useDb(pharmacyBase);
+          const MedicamentModel = connection.model('Medicament', Medicament.schema, 'medicaments');
+
+          const medicaments = await MedicamentModel.find(query).limit(limitNum).skip(skip).lean();
+          for (const medicament of medicaments) {
+            const images = await DrugImage.find({
+              nom: { $in: [medicament.nom.toLowerCase(), medicament.nom_generique?.toLowerCase()] }
+            }).lean();
+            medicament.images = images.length ? images[0].images : [];
+          }
+
+          const totalMedicaments = await MedicamentModel.countDocuments(query);
+          totalGlobalMedicaments += totalMedicaments;
+
+          return {
+            pharmacie: { id: pharmacy._id, nom: pharmacyName, base: pharmacyBase },
+            medicaments,
+            totalMedicaments
+          };
+        } catch (error) {
+          console.error(`❌ Erreur pour pharmacie ${pharmacyName}:`, error);
+          return {
+            pharmacie: { id: pharmacy._id, nom: pharmacyName, base: pharmacyBase },
+            medicaments: [],
+            totalMedicaments: 0
+          };
+        }
+      })
+    );
+
+    const totalPages = Math.ceil(totalGlobalMedicaments / limitNum);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        pharmacies: pharmacyResults,
+        totalPages,
+        currentPage: pageNum,
+        totalMedicaments: totalGlobalMedicaments
+      }
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération tous médicaments:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+}
+
+async function searchMedicaments(req, res) {
+  try {
+    const { nom } = req.query;
+    if (!nom) {
+      return res.status(400).json({ success: false, message: 'Nom du médicament requis' });
+    }
+
+    console.log(`🔍 [searchMedicaments] Recherche de: ${nom}`);
+    const pharmacies = await User.find({
+      role: 'pharmacie',
+      isActive: true,
+      isVerified: true,
+      'pharmacieInfo.statutDemande': 'approuvee'
+    }).select('_id pharmacieInfo.nomPharmacie');
+
+    const results = await Promise.all(pharmacies.map(async (pharma) => {
+      const connection = mongoose.connection.useDb(pharma.pharmacieInfo.baseMedicament);
+      const MedicamentModel = connection.model('Medicament', Medicament.schema, 'medicaments');
+
+      const medicaments = await MedicamentModel.find({
+        $or: [
+          { nom: { $regex: nom, $options: 'i' } },
+          { nom_generique: { $regex: nom, $options: 'i' } }
+        ],
+        pharmacie: pharma._id
+      }).select('nom nom_generique prix quantite_stock images').lean();
+
+      const medicamentsWithImages = await Promise.all(
+        medicaments.map(async (med) => {
+          const images = await DrugImage.find({
+            nom: { $in: [med.nom.toLowerCase(), med.nom_generique?.toLowerCase()].filter(Boolean) }
+          }).lean();
+          return { ...med, images: images.length ? images[0].images : [] };
+        })
+      );
+
+      return {
+        pharmacie: {
+          _id: pharma._id,
+          nom: pharma.pharmacieInfo.nomPharmacie
+        },
+        medicaments: medicamentsWithImages
+      };
+    }));
+
+    console.log(`🔍 [searchMedicaments] Résultats trouvés: ${results.filter(r => r.medicaments.length).length} pharmacies`);
+    res.json({
+      success: true,
+      data: { pharmacies: results }
+    });
+  } catch (error) {
+    console.error('❌ Erreur recherche médicaments:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+}
+
 
 module.exports = {
   getPharmacieDemandeCreationRequests,
@@ -829,11 +1068,15 @@ module.exports = {
   approveSuppressionRequest,
   rejectSuppressionRequest,
   getPharmacieRequestDetails,
+  updatePharmacyRequestStatus,
   updatePharmacieDocuments,
   getAdminDashboard,
   getApprovedPharmacies,
-  updatePharmacyRequestStatus,
   associerBaseMedicament,
-  uploadMedicamentImage,
-  getMedicaments
+  uploadMedicamentImage: uploadMedicamentImageHandler,
+  handlePharmacyRequest,
+  getPharmacyMedicaments,
+  uploadDrugImageHandler,
+  getAllMedicaments,
+  searchMedicaments
 };

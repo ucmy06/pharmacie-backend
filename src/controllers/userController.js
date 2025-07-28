@@ -10,7 +10,7 @@ const getAllUsers = async (req, res) => {
   try {
     const {
       page = 1,
-      limit = 10,
+      limit = 50,
       role,
       search,
       isActive
@@ -94,44 +94,7 @@ const getUserById = async (req, res) => {
   }
 };
 
-/**
- * Obtenir les médicaments pour une pharmacie
- */
-const getMedicaments = async (req, res) => {
-  try {
-    const pharmacieId = req.params.id;
-    const pharmacie = await User.findById(pharmacieId);
-    if (!pharmacie) {
-      return res.status(404).json({
-        success: false,
-        message: 'Pharmacie non trouvée'
-      });
-    }
 
-    const base = pharmacie.baseMedicament;
-    if (!base) {
-      return res.status(400).json({
-        success: false,
-        message: 'Pharmacie non liée à une base médicament'
-      });
-    }
-
-    const connection = mongoose.connection.useDb(base, { useCache: true });
-    const Medoc = connection.model('Medicament', medicamentSchema, 'medocs');
-
-    const liste = await Medoc.find();
-    res.json({
-      success: true,
-      data: { medicaments: liste }
-    });
-  } catch (error) {
-    console.error('❌ Erreur récupération médicaments:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur serveur'
-    });
-  }
-};
 
 /**
  * Mettre à jour le rôle d'un utilisateur (Admin seulement)
@@ -326,6 +289,5 @@ module.exports = {
   updateUserRole,
   toggleUserStatus,
   deleteUser,
-  getMedicaments, // Add this
   getUserStats
 };

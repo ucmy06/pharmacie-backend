@@ -1,16 +1,15 @@
-//C:\reactjs node mongodb\pharmacie-backend\src\config\database.js
+// C:\reactjs node mongodb\pharmacie-backend\src\config\database.js
 
 const mongoose = require('mongoose');
 
 const connectDB = async () => {
   try {
-    // Connexion à la base principale des utilisateurs
-    const conn = await mongoose.connect('mongodb://localhost:27017/pharmone_users', {
+    mongoose.set('debug', true); // Activer le débogage Mongoose
+    const conn = await mongoose.connect('mongodb://127.0.0.1:27017/pharmacies', {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
-    console.log(`✅ MongoDB Users Connected: ${conn.connection.host}`);
-    
+    console.log(`✅ MongoDB Connected: ${conn.connection.host} (base: pharmacies)`);
     return conn;
   } catch (error) {
     console.error('❌ Erreur de connexion MongoDB:', error.message);
@@ -21,7 +20,8 @@ const connectDB = async () => {
 // Fonction pour se connecter aux bases de pharmacies existantes
 const connectToPharmacyDB = (pharmacyName) => {
   try {
-    const pharmacyDB = mongoose.connection.useDb(`pharmacie_${pharmacyName}`);
+    const pharmacyDB = mongoose.connection.useDb(pharmacyName, { useCache: false });
+    console.log(`✅ Connecté à la base pharmacie: ${pharmacyName}`);
     return pharmacyDB;
   } catch (error) {
     console.error(`❌ Erreur connexion pharmacie ${pharmacyName}:`, error.message);
