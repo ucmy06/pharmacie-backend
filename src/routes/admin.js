@@ -1,13 +1,10 @@
+// Fichier : src/routes/admin.js
+// Fichier : src/routes/admin.js
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
-
-const { User } = require('../models/User');
-
 const { authenticate } = require('../middlewares/auth');
 const { requireAdmin } = require('../middlewares/roleCheck');
-const { uploadDrugImages } = require('../middlewares/multerConfig'); // ✅ Import correct
-
+const { uploadDrugImages } = require('../middlewares/multerConfig');
 const {
   getPharmacieDemandeCreationRequests,
   getPharmacyModifDeleteRequests,
@@ -27,7 +24,6 @@ const {
   uploadDrugImageHandler,
   getAllMedicaments
 } = require('../controllers/adminController');
-
 const {
   getAllUsers,
   getUserById,
@@ -36,33 +32,10 @@ const {
   deleteUser,
   getUserStats
 } = require('../controllers/userController');
-
 const {
   getSearchStats,
   getPharmacieStats
 } = require('../controllers/statsController');
-
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'Uploads/medicaments');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
-  }
-});
-const upload = multer({
-  storage,
-  fileFilter: (req, file, cb) => {
-    const filetypes = /jpeg|jpg|png/;
-    const mimetype = filetypes.test(file.mimetype);
-    if (mimetype) {
-      return cb(null, true);
-    }
-    cb(new Error('Type de fichier non supporté. Seuls JPEG, JPG et PNG sont autorisés.'));
-  },
-  limits: { fileSize: 5 * 1024 * 1024 }
-});
 
 router.use(authenticate);
 router.use(requireAdmin);
@@ -95,13 +68,9 @@ router.get('/pharmacies', getApprovedPharmacies);
 
 router.post('/pharmacy/:pharmacyId/assign-db', associerBaseMedicament);
 
-router.post('/pharmacy/:pharmacyId/medicament/:medicamentId/image', upload.single('image'), uploadMedicamentImage);
+router.post('/pharmacy/:pharmacyId/medicament/:medicamentId/image', uploadDrugImages, uploadMedicamentImage);
 
-router.post('/drug/image', 
-  uploadDrugImages, // ✅ Middleware multer AVANT le contrôleur
-  uploadDrugImageHandler
-  
-);
+router.post('/drug/image', uploadDrugImages, uploadDrugImageHandler);
 
 router.get('/medicaments/all', getAllMedicaments);
 

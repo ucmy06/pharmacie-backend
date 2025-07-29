@@ -1,3 +1,4 @@
+// Fichier : src/routes/client.js
 const express = require('express');
 const router = express.Router();
 const { User } = require('../models/User');
@@ -71,6 +72,19 @@ router.get('/commandes', authenticate, async (req, res) => {
     res.json({ success: true, commandes });
   } catch (error) {
     console.error('❌ Erreur récupération commandes:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+router.get('/pharmacies/:pharmacyId', authenticate, async (req, res) => {
+  try {
+    const pharmacy = await User.findById(req.params.pharmacyId).select('nom prenom email telephone pharmacieInfo');
+    if (!pharmacy || pharmacy.role !== 'pharmacie') {
+      return res.status(404).json({ success: false, message: 'Pharmacie non trouvée' });
+    }
+    res.json({ success: true, pharmacie: pharmacy });
+  } catch (error) {
+    console.error('❌ Erreur récupération pharmacie:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });

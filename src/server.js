@@ -13,6 +13,7 @@ const { mongodbLogger, httpLogger, initializeMongoLogging } = require('./middlew
 const listEndpoints = require('express-list-endpoints');
 const { User, ConnexionPharmacie } = require('./models/User');
 
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -31,6 +32,9 @@ app.use(cors({
   credentials: true,
   exposedHeaders: ['Content-Type', 'Authorization']
 }));
+
+
+
 app.use(helmet({
   crossOriginResourcePolicy: false,
   crossOriginEmbedderPolicy: false
@@ -164,6 +168,8 @@ const adminRoutes = require('./routes/admin');
 const pharmaciesRoutes = require('./routes/pharmacies');
 const medicamentsRoutes = require('./routes/medicaments');
 const clientRoutes = require('./routes/client');
+const cartRoutes = require('./routes/cart');
+
 
 // Utilisation des routes
 app.use('/api/auth', authRoutes);
@@ -172,6 +178,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/pharmacies', pharmaciesRoutes);
 app.use('/api/medicaments', medicamentsRoutes);
 app.use('/api/client', clientRoutes);
+app.use('/api/cart', cartRoutes);
 
 // Route de test
 app.get('/api/health', (req, res) => {

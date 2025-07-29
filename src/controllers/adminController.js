@@ -1,3 +1,5 @@
+// C:\reactjs node mongodb\pharmacie-backend\src\controllers\adminController.js
+
 const mongoose = require('mongoose');
 const Counter = require('../models/Counter');
 const { User } = require('../models/User');
@@ -197,60 +199,85 @@ async function getPharmacyModifDeleteRequests(req, res) {
   }
 }
 
+// Fichier : src/controllers/adminController.js
+// Fichier : src/controllers/adminController.js
 async function getPharmacyMedicaments(req, res) {
   try {
     const { pharmacyId } = req.params;
-    // Supprimez la restriction admin pour permettre l'accès aux clients
+    const { nom } = req.query;
     if (!req.user) {
+      console.log('❌ [getPharmacyMedicaments] Utilisateur non authentifié');
       return res.status(403).json({ success: false, message: 'Accès non autorisé' });
     }
 
-    const pharmacie = await User.findById(pharmacyId);
-    if (!pharmacie || pharmacie.role !== 'pharmacie' || !pharmacie.pharmacieInfo.baseMedicament) {
-      return res.status(404).json({ success: false, message: 'Pharmacie ou base de données non trouvée' });
+    console.log(`🔍 [getPharmacyMedicaments] Recherche pour pharmacyId: ${pharmacyId}, nom: ${nom || 'aucun'}`);
+
+    const pharmacie = await User.findById(pharmacyId).lean();
+    if (!pharmacie) {
+      console.log(`❌ [getPharmacyMedicaments] Pharmacie ${pharmacyId} non trouvée`);
+      return res.status(404).json({ success: false, message: 'Pharmacie non trouvée' });
+    }
+    if (pharmacie.role !== 'pharmacie') {
+      console.log(`❌ [getPharmacyMedicaments] Rôle non valide pour ${pharmacyId}: ${pharmacie.role}`);
+      return res.status(404).json({ success: false, message: 'Entité non valide (pas une pharmacie)' });
+    }
+    if (!pharmacie.pharmacieInfo?.baseMedicament) {
+      console.log(`❌ [getPharmacyMedicaments] baseMedicament manquant pour ${pharmacyId}`);
+      return res.status(404).json({ success: false, message: 'Base de données des médicaments non configurée' });
     }
 
+    console.log(`🔍 [getPharmacyMedicaments] Connexion à la base: ${pharmacie.pharmacieInfo.baseMedicament}`);
     const connection = mongoose.connection.useDb(pharmacie.pharmacieInfo.baseMedicament);
     const MedicamentModel = connection.model('Medicament', Medicament.schema, 'medicaments');
 
-    const medicaments = await MedicamentModel.find({ pharmacie: pharmacyId })
-      .select('nom nom_generique description prix quantite_stock est_sur_ordonnance image')
+    const query = { pharmacie: new mongoose.Types.ObjectId(pharmacyId) };
+    if (nom) {
+      query.$or = [
+        { nom: { $regex: nom, $options: 'i' } },
+        { nom_generique: { $regex: nom, $options: 'i' } }
+      ];
+    }
+
+    const medicaments = await MedicamentModel.find(query)
+      .select('nom nom_generique description prix quantite_stock est_sur_ordonnance categorie forme date_peremption dosage code_barre')
       .lean();
 
-    // Ajouter les images depuis DrugImage
+    console.log(`🔍 [getPharmacyMedicaments] Médicaments trouvés: ${medicaments.length}`);
+
     const medicamentsWithImages = await Promise.all(
       medicaments.map(async (med) => {
-        const images = await DrugImageModel.find({
-          nom: { $in: [med.nom.toLowerCase(), med.nom_generique?.toLowerCase()].filter(Boolean) }
+        const image = await DrugImageModel.findOne({
+          nom: { $in: [med.nom.toLowerCase(), med.nom_generique?.toLowerCase()].filter(Boolean) },
         }).lean();
+        console.log(`🔍 [getPharmacyMedicaments] Image trouvée pour ${med.nom}:`, image ? JSON.stringify(image.images) : 'Aucune');
         return {
           ...med,
-          images: images.length ? images[0].images : []
+          image: image && image.images.length > 0 ? image.images[0] : null,
+          images: image && image.images ? image.images : [],
         };
       })
     );
 
-    console.log(`🔍 [getPharmacyMedicaments] Médicaments trouvés pour ${pharmacyId}:`, medicamentsWithImages.length);
+    console.log(`🔍 [getPharmacyMedicaments] Médicaments avec images: ${medicamentsWithImages.length}`);
 
     res.json({
       success: true,
-      data: { medicaments: medicamentsWithImages }
+      data: { medicaments: medicamentsWithImages },
     });
   } catch (error) {
-    console.error('❌ Erreur récupération médicaments:', error);
+    console.error(`❌ [getPharmacyMedicaments] Erreur pour ${pharmacyId}:`, error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 }
-
 async function uploadMedicamentImageHandler(req, res) {
   try {
-    upload(req, res, async (err) => {
+    uploadDrugImages(req, res, async (err) => {
       if (err) {
         console.error('❌ [multer] Erreur upload:', err.message);
         return res.status(400).json({ success: false, message: err.message });
       }
-      if (!req.file) {
-        return res.status(400).json({ success: false, message: 'Aucun fichier téléchargé' });
+      if (!req.files || req.files.length === 0) {
+        return res.status(400).json({ success: false, message: 'Aucune image téléchargée' });
       }
 
       const { pharmacyId, medicamentId } = req.params;
@@ -271,21 +298,40 @@ async function uploadMedicamentImageHandler(req, res) {
         return res.status(404).json({ success: false, message: 'Médicament non trouvé ou non associé à cette pharmacie' });
       }
 
-      const image = {
-        nomFichier: req.file.filename,
-        cheminFichier: `/Uploads/medicaments/${req.file.filename}`,
-        typeFichier: req.file.mimetype,
-        tailleFichier: req.file.size,
+      const imageData = req.files.map(file => ({
+        nomFichier: file.filename,
+        cheminFichier: `/Uploads/medicaments/${file.filename}`,
+        typeFichier: file.mimetype,
+        tailleFichier: file.size,
         dateUpload: new Date(),
-      };
+      }));
 
-      medicament.image = image;
+      let drugImage = await DrugImageModel.findOne({ nom: medicament.nom.toLowerCase() });
+      if (drugImage) {
+        if (drugImage.images.length + req.files.length > 3) {
+          return res.status(400).json({ 
+            success: false, 
+            message: `Ce médicament a déjà ${drugImage.images.length} image(s). Le total ne peut pas dépasser 3 images.` 
+          });
+        }
+        drugImage.images = [...drugImage.images, ...imageData];
+        await drugImage.save();
+      } else {
+        drugImage = new DrugImageModel({
+          nom: medicament.nom.toLowerCase(),
+          images: imageData,
+        });
+        await drugImage.save();
+      }
+
+      // Supprimer le champ image de Medicament
+      medicament.image = undefined;
       await medicament.save();
 
       res.json({
         success: true,
-        message: 'Image du médicament téléchargée avec succès',
-        data: image,
+        message: `${req.files.length} image(s) téléchargée(s) avec succès pour ${medicament.nom}`,
+        data: imageData,
       });
     });
   } catch (error) {
@@ -293,7 +339,6 @@ async function uploadMedicamentImageHandler(req, res) {
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 }
-
 async function approvePharmacieRequest(req, res) {
   try {
     const { userId } = req.params;
@@ -1004,59 +1049,72 @@ async function getAllMedicaments(req, res) {
 async function searchMedicaments(req, res) {
   try {
     const { nom } = req.query;
-    if (!nom) {
-      return res.status(400).json({ success: false, message: 'Nom du médicament requis' });
-    }
+    console.log(`🔍 [searchMedicaments] Recherche pour nom: ${nom || 'aucun'}`);
 
-    console.log(`🔍 [searchMedicaments] Recherche de: ${nom}`);
-    const pharmacies = await User.find({
-      role: 'pharmacie',
-      isActive: true,
-      isVerified: true,
-      'pharmacieInfo.statutDemande': 'approuvee'
-    }).select('_id pharmacieInfo.nomPharmacie');
+    const pharmacies = await User.find({ role: 'pharmacie' })
+      .select('pharmacieInfo.baseMedicament pharmacieInfo.nomPharmacie')
+      .lean();
 
-    const results = await Promise.all(pharmacies.map(async (pharma) => {
-      const connection = mongoose.connection.useDb(pharma.pharmacieInfo.baseMedicament);
-      const MedicamentModel = connection.model('Medicament', Medicament.schema, 'medicaments');
+    const result = await Promise.all(
+      pharmacies.map(async (pharma) => {
+        if (!pharma.pharmacieInfo?.baseMedicament) {
+          return null;
+        }
+        const connection = mongoose.connection.useDb(pharma.pharmacieInfo.baseMedicament);
+        const MedicamentModel = connection.model('Medicament', Medicament.schema, 'medicaments');
 
-      const medicaments = await MedicamentModel.find({
-        $or: [
-          { nom: { $regex: nom, $options: 'i' } },
-          { nom_generique: { $regex: nom, $options: 'i' } }
-        ],
-        pharmacie: pharma._id
-      }).select('nom nom_generique prix quantite_stock images').lean();
+        const query = {};
+        if (nom) {
+          query.$or = [
+            { nom: { $regex: nom, $options: 'i' } },
+            { nom_generique: { $regex: nom, $options: 'i' } }
+          ];
+        }
 
-      const medicamentsWithImages = await Promise.all(
-        medicaments.map(async (med) => {
-          const images = await DrugImage.find({
-            nom: { $in: [med.nom.toLowerCase(), med.nom_generique?.toLowerCase()].filter(Boolean) }
-          }).lean();
-          return { ...med, images: images.length ? images[0].images : [] };
-        })
-      );
+        const medicaments = await MedicamentModel.find(query)
+          .select('nom nom_generique description prix quantite_stock est_sur_ordonnance categorie forme date_peremption dosage code_barre')
+          .lean();
 
-      return {
-        pharmacie: {
-          _id: pharma._id,
-          nom: pharma.pharmacieInfo.nomPharmacie
-        },
-        medicaments: medicamentsWithImages
-      };
-    }));
+        const normalizeDrugName = (name) => {
+          if (!name) return null;
+          const normalized = name.toLowerCase().replace(/\s*\d+\s*(mg|ui|mcg|%)?/gi, '').replace(/\s+/g, ' ').trim();
+          return normalized;
+        };
 
-    console.log(`🔍 [searchMedicaments] Résultats trouvés: ${results.filter(r => r.medicaments.length).length} pharmacies`);
+        const medicamentsWithImages = await Promise.all(
+          medicaments.map(async (med) => {
+            const normalizedName = normalizeDrugName(med.nom);
+            const normalizedGenericName = normalizeDrugName(med.nom_generique);
+            const image = await DrugImageModel.findOne({
+              nom: { $in: [normalizedName, normalizedGenericName].filter(Boolean) },
+            }).lean();
+            return {
+              ...med,
+              images: image && image.images ? image.images : [],
+            };
+          })
+        );
+
+        return {
+          pharmacieId: pharma._id,
+          nomPharmacie: pharma.pharmacieInfo.nomPharmacie,
+          medicaments: medicamentsWithImages,
+        };
+      })
+    );
+
+    const filteredResult = result.filter((r) => r !== null);
+    console.log(`🔍 [searchMedicaments] Résultat: ${filteredResult.length} pharmacies trouvées`);
+
     res.json({
       success: true,
-      data: { pharmacies: results }
+      data: { pharmacies: filteredResult },
     });
   } catch (error) {
-    console.error('❌ Erreur recherche médicaments:', error);
+    console.error('❌ [searchMedicaments] Erreur:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 }
-
 
 module.exports = {
   getPharmacieDemandeCreationRequests,

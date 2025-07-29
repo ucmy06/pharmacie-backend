@@ -22,8 +22,6 @@ numeroPharmacie: {
   trim: true,
   sparse: true // ✅ pour éviter l'erreur avec null
 },
-
-
   livraisonDisponible: {
     type: Boolean,
     default: false
