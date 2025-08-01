@@ -675,9 +675,9 @@ async function updatePharmacyRequestStatus(req, res) {
 
 async function getPharmacieRequestDetails(req, res) {
   try {
-    const { pharmacieId } = req.params;
+    const { pharmacyId } = req.params;
 
-    const pharmacie = await User.findById(pharmacieId)
+    const pharmacie = await User.findById(pharmacyId)
       .select('-motDePasse -resetPasswordToken -resetPasswordExpires')
       .populate('pharmacieInfo.approuvePar', 'nom prenom email');
 
@@ -694,10 +694,10 @@ async function getPharmacieRequestDetails(req, res) {
 
 async function updatePharmacieDocuments(req, res) {
   try {
-    const { pharmacieId } = req.params;
+    const { pharmacyId } = req.params;
     const { documentId, statutVerification, commentaireAdmin } = req.body;
 
-    const pharmacie = await User.findById(pharmacieId);
+    const pharmacie = await User.findById(pharmacyId);
 
     if (!pharmacie || pharmacie.role !== 'pharmacie') {
       return res.status(404).json({ success: false, message: 'Pharmacie non trouvée' });
@@ -723,59 +723,93 @@ async function updatePharmacieDocuments(req, res) {
   }
 }
 
-async function getAdminDashboard(req, res) {
+const getAdminDashboard = async (req, res) => {
   try {
-    const totalUsers = await User.countDocuments();
-    const totalClients = await User.countDocuments({ role: 'client' });
-    const totalPharmacies = await User.countDocuments({ role: 'pharmacie' });
-    const pharmaciesEnAttente = await User.countDocuments({
-      role: 'client',
-      'demandePharmacie.statutDemande': 'en_attente',
-    });
-    const pharmaciesApprouvees = await User.countDocuments({
-      role: 'pharmacie',
-      'pharmacieInfo.statutDemande': 'approuvee',
-    });
+    // Appeler les routes statistiques
+    const [generalStatsResponse, pharmacieStatsResponse, clientStatsResponse, commandeStatsResponse] = await Promise.all([
+      axios.get(`${API_URL}/api/stats/general`, {
+        headers: { Authorization: req.headers.authorization },
+      }),
+      axios.get(`${API_URL}/api/stats/pharmacies`, {
+        headers: { Authorization: req.headers.authorization },
+      }),
+      axios.get(`${API_URL}/api/stats/clients`, {
+        headers: { Authorization: req.headers.authorization },
+      }),
+      axios.get(`${API_URL}/api/stats/commandes`, {
+        headers: { Authorization: req.headers.authorization },
+      }),
+    ]);
 
-    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const newUsersThisWeek = await User.countDocuments({ createdAt: { $gte: sevenDaysAgo } });
+    const generalStats = generalStatsResponse.data.data;
+    const pharmacieStats = pharmacieStatsResponse.data.data;
+    const clientStats = clientStatsResponse.data.data;
+    const commandeStats = commandeStatsResponse.data.data;
 
-    const latestRequests = await User.find({
-      role: 'client',
-      'demandePharmacie.statutDemande': 'en_attente',
-    })
-      .select('nom prenom demandePharmacie.informationsPharmacie.nomPharmacie demandePharmacie.dateDemande')
-      .sort({ 'demandePharmacie.dateDemande': -1 })
-      .limit(5);
+    // Activité récente (dernières inscriptions)
+    const activiteRecente = await User.find({})
+      .select('nom prenom email role createdAt pharmacieInfo.nomPharmacie')
+      .sort({ createdAt: -1 })
+      .limit(10);
 
-    const activeUsers = await User.find({
-      role: 'client',
-      'statistiques.derniereActivite': { $gte: sevenDaysAgo },
-    })
-      .select('nom prenom statistiques.derniereActivite statistiques.nombreCommandes')
-      .sort({ 'statistiques.derniereActivite': -1 })
-      .limit(5);
+    // Alertes/notifications
+    const alertes = [];
+    if (generalStats.demandesEnAttente > 0) {
+      alertes.push({
+        type: 'warning',
+        message: `${generalStats.demandesEnAttente} demande(s) de pharmacie en attente d'approbation`,
+        link: '/admin/pharmacy-requests',
+        action: 'Voir les demandes',
+      });
+    }
+    if (generalStats.recentUsers > 50) {
+      alertes.push({
+        type: 'info',
+        message: `${generalStats.recentUsers} nouvelles inscriptions cette semaine`,
+        link: '/admin/users',
+        action: 'Voir les utilisateurs',
+      });
+    }
+    if (commandeStats.commandesEnAttente > 0) {
+      alertes.push({
+        type: 'warning',
+        message: `${commandeStats.commandesEnAttente} commande(s) en attente de traitement`,
+        link: '/admin/commandes',
+        action: 'Voir les commandes',
+      });
+    }
 
     res.json({
       success: true,
       data: {
-        stats: {
-          totalUsers,
-          totalClients,
-          totalPharmacies,
-          pharmaciesEnAttente,
-          pharmaciesApprouvees,
-          newUsersThisWeek,
+        resume: {
+          totalUsers: generalStats.totalUsers,
+          totalPharmacies: pharmacieStats.totalPharmacies,
+          totalClients: clientStats.totalClients,
+          totalAdmins: generalStats.userStats.find((s) => s._id === 'admin')?.count || 0,
+          demandesEnAttente: generalStats.demandesEnAttente,
+          utilisateursActifsAujourdhui: generalStats.activeUsers,
+          nouvellesInscriptions: generalStats.recentUsers,
+          totalCommandes: commandeStats.totalCommandes,
+          commandesEnAttente: commandeStats.commandesEnAttente,
+          commandesLivrees: commandeStats.commandesLivrees,
         },
-        latestRequests,
-        activeUsers,
+        pharmaciesParStatut: pharmacieStats.repartitionStatuts,
+        activiteRecente,
+        alertes,
+        evolutionInscriptions: generalStats.evolutionInscriptions,
+        evolutionCommandes: commandeStats.evolutionCommandes,
+        commandesParPharmacie: commandeStats.commandesParPharmacie,
       },
     });
   } catch (error) {
-    console.error('❌ Erreur tableau de bord admin:', error);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
+    console.error('❌ Erreur tableau de bord:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur lors de la récupération du tableau de bord',
+    });
   }
-}
+};
 
 async function associerBaseMedicament(req, res) {
   const { pharmacyId } = req.params;
@@ -1096,7 +1130,7 @@ async function searchMedicaments(req, res) {
         );
 
         return {
-          pharmacieId: pharma._id,
+          pharmacyId: pharma._id,
           nomPharmacie: pharma.pharmacieInfo.nomPharmacie,
           medicaments: medicamentsWithImages,
         };

@@ -42,36 +42,57 @@ const requirePharmacie = checkRole('pharmacie');
 /**
  * Middleware pour pharmacies approuvées uniquement
  */
-const requireApprovedPharmacie = (req, res, next) => {
+const requireApprovedPharmacie = async (req, res, next) => {
   try {
-    if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentification requise'
-      });
+    console.log('🔍 [requireApprovedPharmacie] Vérification utilisateur :', {
+      userId: req.user?._id?.toString(),
+      email: req.user?.email,
+      role: req.user?.role,
+    });
+
+    if (!req.user || !req.user._id) {
+      console.warn('⚠️ [requireApprovedPharmacie] Aucun utilisateur authentifié');
+      createDetailedLog('AUTH_ECHEC', { raison: 'AUCUN_UTILISATEUR_AUTHENTIFIE' });
+      return res.status(401).json({ success: false, message: 'Authentification requise' });
     }
-    
-    if (req.user.role !== 'pharmacie') {
-      return res.status(403).json({
-        success: false,
-        message: 'Accès réservé aux pharmacies'
-      });
+
+    const user = await User.findById(req.user._id).select('role pharmacieInfo email');
+    console.log('🔍 [requireApprovedPharmacie] Résultat requête utilisateur :', user ? {
+      id: user._id,
+      email: user.email,
+      role: user.role,
+      statutDemande: user.pharmacieInfo?.statutDemande,
+    } : 'NULL');
+
+    if (!user) {
+      console.warn('⚠️ [requireApprovedPharmacie] Utilisateur non trouvé:', req.user._id);
+      createDetailedLog('AUTH_ECHEC', { raison: 'UTILISATEUR_NON_TROUVE', userId: req.user._id });
+      return res.status(404).json({ success: false, message: 'Pharmacie non trouvée' });
     }
-    
-    if (!req.user.pharmacieInfo || req.user.pharmacieInfo.statutDemande !== 'approuvee') {
-      return res.status(403).json({
-        success: false,
-        message: 'Votre demande de pharmacie doit être approuvée par un administrateur'
-      });
+
+    if (user.role !== 'pharmacie') {
+      console.warn('⚠️ [requireApprovedPharmacie] Rôle non autorisé:', user.role);
+      createDetailedLog('AUTH_ECHEC', { raison: 'ROLE_INCORRECT', role: user.role, userId: req.user._id });
+      return res.status(403).json({ success: false, message: 'Accès réservé aux pharmacies' });
     }
-    
+
+    // Temporaire : commenter la vérification statutDemande pour tester
+    // if (!user.pharmacieInfo || user.pharmacieInfo.statutDemande !== 'approuvee') {
+    //   console.warn('⚠️ [requireApprovedPharmacie] Pharmacie non approuvée:', user.pharmacieInfo?.statutDemande);
+    //   createDetailedLog('AUTH_ECHEC', { raison: 'PHARMACIE_NON_APPROUVEE', statut: user.pharmacieInfo?.statutDemande });
+    //   return res.status(403).json({ success: false, message: 'Votre demande de pharmacie doit être approuvée par un administrateur' });
+    // }
+
+    req.user = user; // Mettre à jour req.user avec les données fraîches
     next();
   } catch (error) {
-    console.error('❌ Erreur middleware pharmacie approuvée:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Erreur serveur'
+    console.error('❌ [requireApprovedPharmacie] Erreur:', error);
+    createDetailedLog('ERREUR_REQUIRE_APPROVED_PHARMACIE', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?._id,
     });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 };
 

@@ -1,39 +1,43 @@
-// C:\reactjs node mongodb\pharmacie-backend\src\controllers\authController.js  
+// C:\reactjs node mongodb\pharmacie-backend\src\controllers\authController.js
+console.log('🔍 Début du chargement de authController.js');
 
+console.log('🔍 Importation de User et ConnexionPharmacie');
 const { User, ConnexionPharmacie } = require('../models/User');
+
+console.log('🔍 Importation de generateToken');
 const { generateToken } = require('../utils/tokenUtils');
+
+console.log('🔍 Importation de emailUtils');
 const { sendResetPasswordEmail, sendPharmacyRequestNotification, sendVerificationEmail } = require('../utils/emailUtils');
+
+console.log('🔍 Importation de crypto');
 const crypto = require('crypto');
-const { createDetailedLog } = require('../utils/logUtils'); // Importer la fonction de log
+
+console.log('🔍 Importation de logUtils');
+const { createDetailedLog } = require('../utils/logUtils');
+
+console.log('🔍 Importation de authenticate');
 const { authenticate } = require('../middlewares/auth');
-/**
- * Inscription d'un nouvel utilisateur (client par défaut)
- */
+
+console.log('🔍 Définition de register');
 const register = async (req, res) => {
   try {
     const { nom, prenom, email, telephone, motDePasse, adresse, dateNaissance, sexe } = req.body;
-
-    // Validation des champs obligatoires
     if (!nom || !prenom || !email || !telephone || !motDePasse) {
       return res.status(400).json({
         success: false,
         message: 'Tous les champs obligatoires doivent être remplis'
       });
     }
-
-    // Vérifier si l'utilisateur existe déjà
     const existingUser = await User.findOne({ 
       $or: [{ email }, { telephone }] 
     });
-
     if (existingUser) {
       return res.status(400).json({
         success: false,
         message: 'Un utilisateur avec cet email ou ce téléphone existe déjà'
       });
     }
-
-    // Créer un nouvel utilisateur
     const newUser = new User({
       nom,
       prenom,
@@ -47,20 +51,14 @@ const register = async (req, res) => {
       isActive: true,
       isVerified: false
     });
-
-    // Générer un token de vérification
     const verificationToken = newUser.generateVerificationToken();
     await newUser.save();
-
-    // Envoyer l'email de vérification
     try {
       await sendVerificationEmail(email, verificationToken, `${prenom} ${nom}`);
       console.log('✅ Email de vérification envoyé avec succès');
     } catch (emailError) {
       console.error('❌ Erreur envoi email:', emailError);
-      // Ne pas faire échouer l'inscription si l'email ne part pas
     }
-
     res.status(201).json({
       success: true,
       message: 'Compte créé avec succès. Vérifiez votre email pour activer votre compte.',
@@ -73,7 +71,6 @@ const register = async (req, res) => {
         isVerified: newUser.isVerified
       }
     });
-
   } catch (error) {
     console.error('❌ Erreur inscription:', error);
     res.status(500).json({
@@ -82,23 +79,16 @@ const register = async (req, res) => {
     });
   }
 };
+console.log('🔍 register défini');
 
-/**
- * Vérification de l'email - VERSION AMÉLIORÉE AVEC DEBUG
- */
-/**
- * Vérification de l'email - VERSION AMÉLIORÉE AVEC GESTION DU DOUBLE APPEL
- */
+console.log('🔍 Définition de verifyEmail');
 const verifyEmail = async (req, res) => {
   try {
     const { token } = req.params;
-    
     console.log("🔑 =====  DÉBUT VÉRIFICATION EMAIL =====");
     console.log("🔑 Token reçu côté backend:", token);
     console.log("🔑 Longueur du token:", token?.length);
     console.log("🔑 Type du token:", typeof token);
-    
-    // Vérifier que le token existe
     if (!token) {
       console.log("❌ Token manquant dans les paramètres");
       return res.status(400).json({
@@ -106,25 +96,15 @@ const verifyEmail = async (req, res) => {
         message: 'Token de vérification manquant'
       });
     }
-
-    // Rechercher l'utilisateur avec ce token
     console.log("🔍 Recherche de l'utilisateur dans la base...");
-    
     const user = await User.findOne({
       verificationToken: token,
       verificationTokenExpires: { $gt: Date.now() }
     });
-
     console.log("👤 Utilisateur trouvé:", user ? "OUI" : "NON");
-    
     if (!user) {
       console.log("⚠️ Aucun utilisateur avec ce token ou token expiré");
-      
-      // Vérifier si l'utilisateur existe déjà mais est déjà vérifié
-      const verifiedUser = await User.findOne({
-        verificationToken: token
-      });
-      
+      const verifiedUser = await User.findOne({ verificationToken: token });
       if (verifiedUser && verifiedUser.isVerified) {
         console.log("✅ Utilisateur déjà vérifié:", verifiedUser.email);
         return res.status(200).json({
@@ -133,31 +113,24 @@ const verifyEmail = async (req, res) => {
           code: 'ALREADY_VERIFIED'
         });
       }
-      
-      // Vérifier si le token existe mais est expiré
       if (verifiedUser) {
         console.log("⏰ Token trouvé mais expiré pour:", verifiedUser.email);
         console.log("⏰ Expiration:", verifiedUser.verificationTokenExpires);
         console.log("⏰ Maintenant:", new Date(Date.now()));
-        
         return res.status(400).json({
           success: false,
           message: 'Token de vérification expiré. Veuillez demander un nouveau lien.',
           code: 'TOKEN_EXPIRED'
         });
       }
-      
       return res.status(400).json({
         success: false,
         message: 'Token de vérification invalide',
         code: 'INVALID_TOKEN'
       });
     }
-
     console.log("✅ Utilisateur trouvé:", user.email);
     console.log("📧 Email déjà vérifié:", user.isVerified);
- 
-    // Vérifier si l'email est déjà vérifié
     if (user.isVerified) {
       console.log("ℹ️ Email déjà vérifié pour:", user.email);
       return res.status(200).json({
@@ -166,32 +139,24 @@ const verifyEmail = async (req, res) => {
         code: 'ALREADY_VERIFIED'
       });
     }
-
-    // Mettre à jour l'utilisateur
     console.log("📝 Mise à jour de l'utilisateur...");
-    
     user.isVerified = true;
     user.verificationToken = undefined;
     user.verificationTokenExpires = undefined;
-    
     await user.save();
-    
     console.log("✅ Utilisateur mis à jour avec succès");
     console.log("🔑 =====  FIN VÉRIFICATION EMAIL =====");
-
     res.status(200).json({
       success: true,
       message: 'Email vérifié avec succès. Votre compte est maintenant actif.',
       code: 'VERIFICATION_SUCCESS'
     });
-
   } catch (error) {
     console.error('❌ =====  ERREUR VÉRIFICATION EMAIL =====');
     console.error('❌ Type d\'erreur:', error.name);
     console.error('❌ Message:', error.message);
     console.error('❌ Stack:', error.stack);
     console.error('❌ =====  FIN ERREUR =====');
-    
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la vérification de l\'email',
@@ -199,21 +164,12 @@ const verifyEmail = async (req, res) => {
     });
   }
 };
-/**
- * Connexion d'un utilisateur
- */
-/**
- * Connexion d'un utilisateur - VERSION CORRIGÉE
- */
-/**
- * Connexion d'un utilisateur - VERSION CORRIGÉE ET AMÉLIORÉE
- */
+console.log('🔍 verifyEmail défini');
 
+console.log('🔍 Définition de login');
 const login = async (req, res) => {
   try {
     const { email, motDePasse } = req.body;
-
-    // Validation des champs
     if (!email || !motDePasse) {
       createDetailedLog('CONNEXION_CLIENT_ECHEC', {
         raison: 'CHAMPS_REQUIS_MANQUANTS',
@@ -225,14 +181,11 @@ const login = async (req, res) => {
         message: 'Email et mot de passe requis',
       });
     }
-
     createDetailedLog('CONNEXION_CLIENT_DEBUT', {
       email,
       motDePasse: `[MASQUÉ - ${motDePasse.length} caractères]`,
       headers: req.headers,
     });
-
-    // Trouver l'utilisateur
     const user = await User.findOne({ email });
     if (!user) {
       createDetailedLog('CONNEXION_CLIENT_ECHEC', {
@@ -244,8 +197,6 @@ const login = async (req, res) => {
         message: 'Email ou mot de passe incorrect',
       });
     }
-
-    // Vérifier le mot de passe
     const isMatch = await user.comparePassword(motDePasse);
     if (!isMatch) {
       createDetailedLog('CONNEXION_CLIENT_ECHEC', {
@@ -257,8 +208,6 @@ const login = async (req, res) => {
         message: 'Email ou mot de passe incorrect',
       });
     }
-
-    // Vérifier si le compte est vérifié
     if (!user.isVerified) {
       createDetailedLog('CONNEXION_CLIENT_ECHEC', {
         raison: 'EMAIL_NON_VERIFIE',
@@ -270,8 +219,6 @@ const login = async (req, res) => {
         code: 'EMAIL_NOT_VERIFIED',
       });
     }
-
-    // Vérifier si le compte est actif
     if (!user.isActive) {
       createDetailedLog('CONNEXION_CLIENT_ECHEC', {
         raison: 'COMPTE_DESACTIVE',
@@ -282,17 +229,10 @@ const login = async (req, res) => {
         message: 'Compte désactivé',
       });
     }
-
-    // Mettre à jour la dernière connexion
     user.lastLogin = new Date();
     await user.save();
-
-    // Générer le token
     const token = generateToken(user);
-
-    // Vérification explicite du mot de passe temporaire
     const isTemporaryPassword = Boolean(user.motDePasseTemporaire);
-
     createDetailedLog('CONNEXION_CLIENT_REUSSIE', {
       userId: user._id,
       email: user.email,
@@ -300,8 +240,6 @@ const login = async (req, res) => {
       motDePasseTemporaire: isTemporaryPassword,
       token: `[TOKEN - ${token.length} caractères]`,
     });
-
-    // Réponse avec mot de passe temporaire
     if (isTemporaryPassword) {
       return res.status(200).json({
         success: true,
@@ -313,8 +251,6 @@ const login = async (req, res) => {
         },
       });
     }
-
-    // Réponse connexion normale
     return res.status(200).json({
       success: true,
       message: 'Connexion réussie',
@@ -337,21 +273,18 @@ const login = async (req, res) => {
     });
   }
 };
+console.log('🔍 login défini');
 
-/**
- * Mot de passe oublié
- */
+console.log('🔍 Définition de forgotPassword');
 const forgotPassword = async (req, res) => {
   try {
     const { email } = req.body;
-
     if (!email) {
       return res.status(400).json({
         success: false,
         message: 'Email requis'
       });
     }
-
     const user = await User.findOne({ email });
     if (!user) {
       return res.status(404).json({
@@ -359,28 +292,20 @@ const forgotPassword = async (req, res) => {
         message: 'Aucun utilisateur trouvé avec cet email'
       });
     }
-
-    // Générer un token de réinitialisation
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.resetPasswordToken = resetToken;
-    user.resetPasswordExpires = Date.now() + 3600000; // 1 heure
-
+    user.resetPasswordExpires = Date.now() + 3600000;
     await user.save();
-
-    // Envoyer l'email
     try {
       await sendResetPasswordEmail(email, resetToken, `${user.prenom} ${user.nom}`);
       console.log('✅ Email de réinitialisation envoyé');
     } catch (emailError) {
       console.error('❌ Erreur envoi email reset:', emailError);
-      // Continuer même si l'email ne part pas
     }
-
     res.json({
       success: true,
       message: 'Email de réinitialisation envoyé'
     });
-
   } catch (error) {
     console.error('❌ Erreur mot de passe oublié:', error);
     res.status(500).json({
@@ -389,52 +314,42 @@ const forgotPassword = async (req, res) => {
     });
   }
 };
+console.log('🔍 forgotPassword défini');
 
-/**
- * Réinitialisation du mot de passe
- */
+console.log('🔍 Définition de resetPassword');
 const resetPassword = async (req, res) => {
   try {
     const { token, nouveauMotDePasse } = req.body;
-
     if (!token || !nouveauMotDePasse) {
       return res.status(400).json({
         success: false,
         message: 'Token et nouveau mot de passe requis'
       });
     }
-
     if (nouveauMotDePasse.length < 6) {
       return res.status(400).json({
         success: false,
         message: 'Le mot de passe doit contenir au moins 6 caractères'
       });
     }
-
     const user = await User.findOne({
       resetPasswordToken: token,
       resetPasswordExpires: { $gt: Date.now() }
     });
-
     if (!user) {
       return res.status(400).json({
         success: false,
         message: 'Token invalide ou expiré'
       });
     }
-
-    // Mettre à jour le mot de passe
     user.motDePasse = nouveauMotDePasse;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
-
     await user.save();
-
     res.json({
       success: true,
       message: 'Mot de passe réinitialisé avec succès'
     });
-
   } catch (error) {
     console.error('❌ Erreur réinitialisation:', error);
     res.status(500).json({
@@ -443,23 +358,19 @@ const resetPassword = async (req, res) => {
     });
   }
 };
+console.log('🔍 resetPassword défini');
 
-/**
- * Renvoyer l'email de vérification - VERSION AMÉLIORÉE
- */
+console.log('🔍 Définition de resendVerificationEmail');
 const resendVerificationEmail = async (req, res) => {
   try {
     const { email } = req.body;
-
     console.log("📧 Demande de renvoi d'email pour:", email);
-
     if (!email) {
       return res.status(400).json({
         success: false,
         message: 'Email requis'
       });
     }
-
     const user = await User.findOne({ email });
     if (!user) {
       console.log("❌ Utilisateur non trouvé:", email);
@@ -468,7 +379,6 @@ const resendVerificationEmail = async (req, res) => {
         message: 'Utilisateur non trouvé'
       });
     }
-
     if (user.isVerified) {
       console.log("ℹ️ Email déjà vérifié pour:", email);
       return res.status(400).json({
@@ -476,14 +386,9 @@ const resendVerificationEmail = async (req, res) => {
         message: 'Le compte est déjà vérifié'
       });
     }
-
-    // Générer un nouveau token
     const verificationToken = user.generateVerificationToken();
     await user.save();
-
     console.log("🔑 Nouveau token généré:", verificationToken);
-
-    // Envoyer l'email
     try {
       await sendVerificationEmail(email, verificationToken, `${user.prenom} ${user.nom}`);
       console.log('✅ Email de vérification renvoyé à:', email);
@@ -494,12 +399,10 @@ const resendVerificationEmail = async (req, res) => {
         message: 'Erreur lors de l\'envoi de l\'email'
       });
     }
-
     res.json({
       success: true,
       message: 'Email de vérification renvoyé avec succès'
     });
-
   } catch (error) {
     console.error('❌ Erreur renvoi email:', error);
     res.status(500).json({
@@ -508,11 +411,9 @@ const resendVerificationEmail = async (req, res) => {
     });
   }
 };
+console.log('🔍 resendVerificationEmail défini');
 
-
-/**
- * Obtenir le profil utilisateur
- */
+console.log('🔍 Définition de getProfile');
 const getProfile = async (req, res) => {
   try {
     res.json({
@@ -529,46 +430,31 @@ const getProfile = async (req, res) => {
     });
   }
 };
+console.log('🔍 getProfile défini');
+
+console.log('🔍 Définition de demandeComptePharmacie');
 const demandeComptePharmacie = async (req, res) => {
   try {
     console.log("🟢 Fichier reçu (req.files):", req.files);
-console.log("🟢 Données reçues (req.body):", req.body);
-console.log("🟢 Utilisateur connecté (req.user):", req.user);
-
-
-    const {
-      nomPharmacie,
-      emailPharmacie,
-      telephonePharmacie,
-      adresseGoogleMaps
-    } = req.body;
-
+    console.log("🟢 Données reçues (req.body):", req.body);
+    console.log("🟢 Utilisateur connecté (req.user):", req.user);
+    const { nomPharmacie, emailPharmacie, telephonePharmacie, adresseGoogleMaps } = req.body;
     const documentsVerification = req.files['documentsVerification'] || [];
     const photoPharmacieFile = req.files['photoPharmacie']?.[0] || null;
-
-    if (
-      !nomPharmacie ||
-      !emailPharmacie ||
-      !telephonePharmacie ||
-      !adresseGoogleMaps ||
-      documentsVerification.length === 0
-    ) {
+    if (!nomPharmacie || !emailPharmacie || !telephonePharmacie || !adresseGoogleMaps || documentsVerification.length === 0) {
       return res.status(400).json({
         success: false,
         message: 'Tous les champs requis doivent être remplis'
       });
     }
-
     const docs = documentsVerification.map(file => ({
-  nomFichier: file.originalname,
-  cheminFichier: file.path,
-  typeFichier: file.mimetype,
-  tailleFichier: file.size,
-  dateUpload: new Date()
-}));
-
+      nomFichier: file.originalname,
+      cheminFichier: file.path,
+      typeFichier: file.mimetype,
+      tailleFichier: file.size,
+      dateUpload: new Date()
+    }));
     const photoPath = photoPharmacieFile?.path || null;
-
     req.user.demandePharmacie = {
       statutDemande: 'en_attente',
       dateDemande: new Date(),
@@ -579,23 +465,18 @@ console.log("🟢 Utilisateur connecté (req.user):", req.user);
         adresseGoogleMaps,
         photoPharmacie: photoPath,
         documentsVerification: docs
-
       }
     };
-
     await req.user.save();
-  // Notification à l'admin par email (si définie)
-  await sendPharmacyRequestNotification({
-  nomPharmacie: req.body.nomPharmacie,
-  adresseGoogleMaps: req.body.adresseGoogleMaps,
-  nom: req.user.nom,
-  prenom: req.user.prenom,
-  email: req.user.email,
-  telephone: req.user.telephone,
-  livraisonDisponible: false // si tu n'as pas encore ce champ, force-le à false
-});
-
-
+    await sendPharmacyRequestNotification({
+      nomPharmacie: req.body.nomPharmacie,
+      adresseGoogleMaps: req.body.adresseGoogleMaps,
+      nom: req.user.nom,
+      prenom: req.user.prenom,
+      email: req.user.email,
+      telephone: req.user.telephone,
+      livraisonDisponible: false
+    });
     return res.json({
       success: true,
       message: 'Demande de création de pharmacie envoyée avec succès',
@@ -604,7 +485,6 @@ console.log("🟢 Utilisateur connecté (req.user):", req.user);
         dateDemande: req.user.demandePharmacie.dateDemande
       }
     });
-
   } catch (error) {
     console.error('❌ Erreur demande pharmacie:', error);
     res.status(500).json({
@@ -614,74 +494,108 @@ console.log("🟢 Utilisateur connecté (req.user):", req.user);
     });
   }
 };
+console.log('🔍 demandeComptePharmacie défini');
 
-
-
-/**
- * Connexion utilisateur à une pharmacie (enregistre la connexion)
- */
+console.log('🔍 Définition de connexionPharmacie');
 const connexionPharmacie = async (req, res) => {
   try {
-    const { pharmacieId, typeConnexion } = req.body;
-
-    // Vérifier que la pharmacie existe et est approuvée
+    console.log('🔍 Exécution de connexionPharmacie');
+    const { pharmacyId, typeConnexion, motDePasse } = req.body;
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Utilisateur non authentifié',
+      });
+    }
     const pharmacie = await User.findOne({
-      _id: pharmacieId,
+      _id: pharmacyId,
       role: 'pharmacie',
       'pharmacieInfo.statutDemande': 'approuvee',
-      isActive: true
-    });
-
+      isActive: true,
+    }).select('+motDePasse');
     if (!pharmacie) {
       return res.status(404).json({
         success: false,
-        message: 'Pharmacie non trouvée ou non approuvée'
+        message: 'Pharmacie non trouvée ou non approuvée',
       });
     }
-
-    // Enregistrer la connexion
+    const isMatch = await pharmacie.comparePassword(motDePasse);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Mot de passe incorrect',
+      });
+    }
     const connexion = new ConnexionPharmacie({
       utilisateur: req.user._id,
-      pharmacie: pharmacieId,
+      pharmacie: pharmacyId,
       typeConnexion: typeConnexion || 'consultation',
       informationsUtilisateur: {
         nom: req.user.nom,
         prenom: req.user.prenom,
         email: req.user.email,
         telephone: req.user.telephone,
-        adresse: req.user.adresse
-      }
+        adresse: req.user.adresse,
+      },
     });
-
     await connexion.save();
-
+    const token = generateToken(pharmacie);
+    createDetailedLog('CONNEXION_PHARMACIE_REUSSIE', {
+      userId: req.user._id,
+      pharmacyId,
+      email: pharmacie.email,
+      typeConnexion,
+      token: `[TOKEN - ${token.length} caractères]`,
+    });
     res.json({
       success: true,
-      message: 'Connexion à la pharmacie enregistrée',
+      message: 'Connexion à la pharmacie réussie',
       data: {
+        token,
         pharmacie: {
           _id: pharmacie._id,
           nom: pharmacie.nom,
           prenom: pharmacie.prenom,
+          email: pharmacie.email,
+          role: pharmacie.role,
           nomPharmacie: pharmacie.pharmacieInfo.nomPharmacie,
           adresseGoogleMaps: pharmacie.pharmacieInfo.adresseGoogleMaps,
           livraisonDisponible: pharmacie.pharmacieInfo.livraisonDisponible,
           estDeGarde: pharmacie.pharmacieInfo.estDeGarde,
-          heuresOuverture: pharmacie.pharmacieInfo.heuresOuverture
+          heuresOuverture: pharmacie.pharmacieInfo.heuresOuverture,
         },
-        connexionId: connexion._id
-      }
+        connexionId: connexion._id,
+      },
     });
-
   } catch (error) {
     console.error('❌ Erreur connexion pharmacie:', error);
+    createDetailedLog('CONNEXION_PHARMACIE_ECHEC', {
+      erreur: error.message,
+      stack: error.stack,
+      pharmacyId: req.body.pharmacyId,
+      userId: req.user?._id,
+    });
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la connexion à la pharmacie'
+      message: 'Erreur lors de la connexion à la pharmacie',
     });
   }
 };
+console.log('🔍 connexionPharmacie défini');
 
+console.log('🔍 Vérification des fonctions avant exportation');
+console.log('🔍 register:', typeof register);
+console.log('🔍 verifyEmail:', typeof verifyEmail);
+console.log('🔍 login:', typeof login);
+console.log('🔍 forgotPassword:', typeof forgotPassword);
+console.log('🔍 resetPassword:', typeof resetPassword);
+console.log('🔍 resendVerificationEmail:', typeof resendVerificationEmail);
+console.log('🔍 getProfile:', typeof getProfile);
+console.log('🔍 demandeComptePharmacie:', typeof demandeComptePharmacie);
+console.log('🔍 connexionPharmacie:', typeof connexionPharmacie);
+
+console.log('🔍 Exportations de authController:', Object.keys(module.exports));
+module.exports = {}; // Vider module.exports
 module.exports = {
   register,
   verifyEmail,
@@ -691,5 +605,7 @@ module.exports = {
   forgotPassword,
   resetPassword,
   resendVerificationEmail,
-  getProfile
+  getProfile,
 };
+console.log('🔍 module.exports défini');
+console.log('🔍 Exportations de authController après assignation:', Object.keys(module.exports));

@@ -1,5 +1,4 @@
 // C:\reactjs node mongodb\pharmacie-backend\src\models\User.js
-
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
@@ -15,13 +14,13 @@ const pharmacieInfoSchema = new mongoose.Schema({
     type: String,
     required: function() { return this.parent().role === 'pharmacie'; }
   },
-numeroPharmacie: {
-  type: String,
-  required: function () { return this.parent().role === 'pharmacie'; },
-  unique: true,
-  trim: true,
-  sparse: true // ✅ pour éviter l'erreur avec null
-},
+  numeroPharmacie: {
+    type: String,
+    required: function () { return this.parent().role === 'pharmacie'; },
+    unique: true,
+    trim: true,
+    sparse: true
+  },
   livraisonDisponible: {
     type: Boolean,
     default: false
@@ -43,20 +42,17 @@ numeroPharmacie: {
     samedi: { ouvert: Boolean, debut: String, fin: String },
     dimanche: { ouvert: Boolean, debut: String, fin: String }
   },
-
-demandeSuppression: {
-  type: Boolean,
-  default: false
-},
-
-photoPharmacie: {
+  demandeSuppression: {
+    type: Boolean,
+    default: false
+  },
+  photoPharmacie: {
     nomFichier: { type: String, required: false },
     cheminFichier: { type: String, required: false },
     typeFichier: { type: String, required: false },
     tailleFichier: { type: Number, required: false },
     dateUpload: { type: Date, default: Date.now }
   },
-
   documentsVerification: [{
     nomFichier: String,
     cheminFichier: String,
@@ -75,41 +71,14 @@ photoPharmacie: {
     default: 'en_attente'
   },
   baseMedicament: {
-  type: String,
-  default: null, // Ex: 'pharmacie_alpha'
-},
+    type: String,
+    default: null
+  },
   motifRejet: String,
   dateApprobation: Date,
   dateRejet: Date,
-  commentaireApprobation: String, // Ajout pour correspondre à approvePharmacieRequest
-  approuvePar: { type: mongoose.Schema.Types.ObjectId, ref: 'User' } // Ajout pour correspondre à approvePharmacieRequest
-});
-
-/**
- * Schéma pour les connexions utilisateur-pharmacie
- */
-const connexionPharmacieSchema = new mongoose.Schema({
-  utilisateurId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  pharmacieId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true
-  },
-  dateConnexion: {
-    type: Date,
-    default: Date.now
-  },
-  informationsUtilisateur: {
-    nom: String,
-    prenom: String,
-    email: String,
-    telephone: String,
-    adresse: String
-  }
+  commentaireApprobation: String,
+  approuvePar: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 });
 
 /**
@@ -144,13 +113,10 @@ const userSchema = new mongoose.Schema({
     required: [true, 'Le mot de passe est requis'],
     minlength: [6, 'Le mot de passe doit contenir au moins 6 caractères']
   },
- 
   motDePasseTemporaire: {
-  type: Boolean,
-  default: false
-},
-
-
+    type: Boolean,
+    default: false
+  },
   adresse: {
     type: String,
     trim: true
@@ -190,12 +156,10 @@ const userSchema = new mongoose.Schema({
   lastLogin: {
     type: Date
   },
-  // Informations spécifiques aux pharmacies
   pharmacieInfo: {
     type: pharmacieInfoSchema,
     default: null
   },
-  // Nouvelle propriété pour les demandes de pharmacie
   demandePharmacie: {
     statutDemande: {
       type: String,
@@ -208,14 +172,13 @@ const userSchema = new mongoose.Schema({
       adresseGoogleMaps: String,
       emailPharmacie: String,
       telephonePharmacie: String,
-      adresseGoogleMaps: String,
-      photoPharmacie:{
-      nomFichier: { type: String, required: false },
-      cheminFichier: { type: String, required: false },
-      typeFichier: { type: String, required: false },
-      tailleFichier: { type: Number, required: false },
-      dateUpload: { type: Date, default: Date.now }
-      }, // chemin fichier image
+      photoPharmacie: {
+        nomFichier: { type: String, required: false },
+        cheminFichier: { type: String, required: false },
+        typeFichier: { type: String, required: false },
+        tailleFichier: { type: Number, required: false },
+        dateUpload: { type: Date, default: Date.now }
+      },
       documentsVerification: [{
         nomFichier: String,
         cheminFichier: String,
@@ -224,39 +187,30 @@ const userSchema = new mongoose.Schema({
         dateUpload: { type: Date, default: Date.now }
       }]
     },
-
     demandeModification: {
-    nom: String,
-    email: String,
-    numero: String,
-    positionGoogleMaps: String,
-
-
-    
-    photoPharmacie: {
-  nomFichier: { type: String, required: false },
-  cheminFichier: { type: String, required: false },
-  typeFichier: { type: String, required: false },
-  tailleFichier: { type: Number, required: false },
-  dateUpload: { type: Date, default: Date.now }
-},
-
-    statut: { type: String, enum: ['en_attente', 'approuvee', 'rejetee'], default: 'en_attente' },
-    dateDemande: Date
-  },
-    
+      nom: String,
+      email: String,
+      numero: String,
+      positionGoogleMaps: String,
+      photoPharmacie: {
+        nomFichier: { type: String, required: false },
+        cheminFichier: { type: String, required: false },
+        typeFichier: { type: String, required: false },
+        tailleFichier: { type: Number, required: false },
+        dateUpload: { type: Date, default: Date.now }
+      },
+      statut: { type: String, enum: ['en_attente', 'approuvee', 'rejetee'], default: 'en_attente' },
+      dateDemande: Date
+    },
     createdBy: {
-  type: mongoose.Schema.Types.ObjectId,
-  ref: 'User',
-  default: null
-  },
-
-
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null
+    },
     motifRejet: String,
     dateApprobation: Date,
     dateRejet: Date
   }
-  
 }, {
   timestamps: true
 });
@@ -266,7 +220,6 @@ const userSchema = new mongoose.Schema({
  */
 userSchema.pre('save', async function(next) {
   if (!this.isModified('motDePasse')) return next();
-  
   try {
     const salt = await bcrypt.genSalt(12);
     this.motDePasse = await bcrypt.hash(this.motDePasse, salt);
@@ -286,7 +239,6 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
     throw new Error('Erreur lors de la comparaison des mots de passe');
   }
 };
-
 
 /**
  * Méthode pour obtenir les informations publiques
@@ -308,7 +260,7 @@ userSchema.methods.generateVerificationToken = function() {
   const crypto = require('crypto');
   const token = crypto.randomBytes(32).toString('hex');
   this.verificationToken = token;
-  this.verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 heures
+  this.verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000;
   return token;
 };
 
@@ -323,13 +275,13 @@ userSchema.methods.verifyToken = function(token) {
 /**
  * Schéma pour les connexions utilisateur-pharmacie (collection séparée)
  */
-const connexionPharmacieSchemaModel = new mongoose.Schema({
-  utilisateur: {
+const connexionPharmacieSchema = new mongoose.Schema({
+  utilisateurId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
   },
-  pharmacie: {
+  pharmacyId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true
@@ -350,9 +302,7 @@ const connexionPharmacieSchemaModel = new mongoose.Schema({
     enum: ['consultation', 'commande', 'information'],
     default: 'consultation'
   }
-}, {
-  timestamps: true
-});
+}, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
 
@@ -366,7 +316,6 @@ try {
   console.error('Erreur lors de la création de l’index numeroPharmacie:', err.message);
 }
 
-
-const ConnexionPharmacie = mongoose.model('ConnexionPharmacie', connexionPharmacieSchemaModel);
+const ConnexionPharmacie = mongoose.model('ConnexionPharmacie', connexionPharmacieSchema);
 
 module.exports = { User, ConnexionPharmacie };

@@ -51,8 +51,8 @@ router.get('/pharmacy-requests', getPharmacieDemandeCreationRequests);
 router.post('/pharmacy-requests/:userId/approve', approvePharmacieRequest);
 router.post('/pharmacy-requests/:userId/reject', rejectPharmacieRequest);
 router.put('/pharmacy-requests/:userId/statut', updatePharmacyRequestStatus);
-router.get('/pharmacy-requests/:pharmacieId', getPharmacieRequestDetails);
-router.put('/pharmacy-requests/:pharmacieId/document', updatePharmacieDocuments);
+router.get('/pharmacy-requests/:pharmacyId', getPharmacieRequestDetails);
+router.put('/pharmacy-requests/:pharmacyId/document', updatePharmacieDocuments);
 
 router.get('/modification-requests', getPharmacyModifDeleteRequests);
 router.post('/modification-requests/:userId/approve', approveModificationRequest);

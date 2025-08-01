@@ -13,7 +13,7 @@ const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
 const { createDetailedLog } = require('../utils/logUtils');
 const axios = require('axios');
-
+const Commande = require('../models/Commande');
 
 // Log MongoDB operations
 const logMongoOperation = (operation, query, result = null, error = null) => {
@@ -36,6 +36,7 @@ exports.uploadDocuments = uploadDocuments;
 exports.uploadPharmacyPhoto = uploadPharmacyPhoto;
 
 // Connexion pharmacie
+// Connexion pharmacie
 exports.loginPharmacie = async (req, res) => {
   try {
     const { email, motDePasse, clientConnecte } = req.body;
@@ -49,7 +50,7 @@ exports.loginPharmacie = async (req, res) => {
     const mongoQuery = { email, role: 'pharmacie' };
     logMongoOperation('FIND_PHARMACIE', mongoQuery);
 
-    const pharmacie = await User.findOne(mongoQuery);
+    const pharmacie = await User.findOne(mongoQuery).select('+motDePasse');
 
     if (!pharmacie) {
       logMongoOperation('FIND_PHARMACIE', mongoQuery, null, new Error('Pharmacie non trouvée'));
@@ -95,8 +96,8 @@ exports.loginPharmacie = async (req, res) => {
       }
 
       const connexionData = {
-        utilisateur: clientConnecte._id,
-        pharmacie: pharmacie._id,
+        utilisateurId: clientConnecte._id, // Corrigé : utiliser utilisateurId
+        pharmacyId: pharmacie._id,        // Corrigé : utiliser pharmacyId
         dateConnexion: new Date(),
         informationsUtilisateur: {
           nom: clientConnecte.nom,
@@ -116,7 +117,7 @@ exports.loginPharmacie = async (req, res) => {
     }
 
     createDetailedLog('CONNEXION_PHARMACIE_REUSSIE', {
-      pharmacieId: pharmacie._id,
+      pharmacyId: pharmacie._id,
       email: pharmacie.email,
     });
 
@@ -616,21 +617,21 @@ exports.getPharmacies = async (req, res) => {
 // Obtenir une pharmacie par ID
 exports.getPharmacieById = async (req, res) => {
   try {
-    const { pharmacieId } = req.params;
+    const { pharmacyId } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(pharmacieId)) {
+    if (!mongoose.Types.ObjectId.isValid(pharmacyId)) {
       createDetailedLog('GET_PHARMACIE_BY_ID_ECHEC', {
         raison: 'ID_INVALIDE',
-        pharmacieId,
+        pharmacyId,
       });
       return res.status(400).json({ message: 'ID de pharmacie invalide' });
     }
 
-    const pharmacie = await User.findById(pharmacieId).select('-motDePasse');
+    const pharmacie = await User.findById(pharmacyId).select('-motDePasse');
     if (!pharmacie || pharmacie.role !== 'pharmacie') {
       createDetailedLog('GET_PHARMACIE_BY_ID_ECHEC', {
         raison: 'PHARMACIE_NON_TROUVEE',
-        pharmacieId,
+        pharmacyId,
       });
       return res.status(404).json({ message: 'Pharmacie non trouvée' });
     }
@@ -651,56 +652,54 @@ exports.getPharmacieById = async (req, res) => {
     createDetailedLog('ERREUR_GET_PHARMACIE_BY_ID', {
       erreur: error.message,
       stack: error.stack,
-      pharmacieId: req.params.pharmacieId,
+      pharmacyId: req.params.pharmacyId,
     });
     res.status(500).json({ message: 'Erreur serveur' });
   }
 };
 
 // Connexion utilisateur à une pharmacie
-exports.connexionPharmacie = async (req, res) => {
+// Connexion utilisateur à une pharmacie (enregistre la connexion et génère un nouveau token)
+const connexionPharmacie = async (req, res) => {
   try {
-    const { pharmacieId, typeConnexion, message } = req.body;
+    const { pharmacyId, typeConnexion, motDePasse } = req.body;
 
+    // Vérifier que l'utilisateur est authentifié
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Utilisateur non authentifié',
+      });
+    }
+
+    // Vérifier que la pharmacie existe et est approuvée
     const pharmacie = await User.findOne({
-      _id: pharmacieId,
+      _id: pharmacyId,
       role: 'pharmacie',
       'pharmacieInfo.statutDemande': 'approuvee',
       isActive: true,
-    });
+    }).select('+motDePasse');
 
     if (!pharmacie) {
-      createDetailedLog('CONNEXION_PHARMACIE_ECHEC', {
-        raison: 'PHARMACIE_NON_TROUVEE',
-        pharmacieId,
-      });
       return res.status(404).json({
         success: false,
         message: 'Pharmacie non trouvée ou non approuvée',
       });
     }
 
-    const connexionRecente = await ConnexionPharmacie.findOne({
-      utilisateur: req.user._id,
-      pharmacie: pharmacieId,
-      dateConnexion: { $gte: new Date(Date.now() - 5 * 60 * 1000) },
-    });
-
-    if (connexionRecente) {
-      createDetailedLog('CONNEXION_PHARMACIE_ECHEC', {
-        raison: 'CONNEXION_REPETEE',
-        pharmacieId,
-        utilisateurId: req.user._id,
-      });
-      return res.status(400).json({
+    // Vérifier le mot de passe de la pharmacie
+    const isMatch = await pharmacie.comparePassword(motDePasse);
+    if (!isMatch) {
+      return res.status(401).json({
         success: false,
-        message: 'Vous êtes déjà connecté à cette pharmacie récemment',
+        message: 'Mot de passe incorrect',
       });
     }
 
+    // Enregistrer la connexion
     const connexion = new ConnexionPharmacie({
-      utilisateur: req.user._id,
-      pharmacie: pharmacieId,
+      utilisateurId: req.user._id, // Corrigé : utiliser utilisateurId
+      pharmacyId: pharmacyId,     // Corrigé : utiliser pharmacyId
       typeConnexion: typeConnexion || 'consultation',
       informationsUtilisateur: {
         nom: req.user.nom,
@@ -709,51 +708,49 @@ exports.connexionPharmacie = async (req, res) => {
         telephone: req.user.telephone,
         adresse: req.user.adresse,
       },
-      message: message || '',
     });
 
     await connexion.save();
 
-    await sendPharmacyAccessNotification(
-      pharmacie.email,
-      {
-        nom: req.user.nom,
-        prenom: req.user.prenom,
-        email: req.user.email,
-        telephone: req.user.telephone,
-        adresse: req.user.adresse,
-        typeConnexion: typeConnexion || 'consultation',
-        message: message || '',
-      },
-      {
-        nomPharmacie: pharmacie.pharmacieInfo.nomPharmacie,
-        pharmacienNom: `${pharmacie.prenom} ${pharmacie.nom}`,
-      }
-    );
+    // Générer un nouveau token avec le rôle pharmacie
+    const token = generateToken(pharmacie);
+
+    // Enregistrer un log détaillé
+    createDetailedLog('CONNEXION_PHARMACIE_REUSSIE', {
+      userId: req.user._id,
+      pharmacyId,
+      email: pharmacie.email,
+      typeConnexion,
+      token: `[TOKEN - ${token.length} caractères]`,
+    });
 
     res.json({
       success: true,
-      message: 'Connexion à la pharmacie enregistrée avec succès',
+      message: 'Connexion à la pharmacie réussie',
       data: {
-        connexionId: connexion._id,
+        token, // Nouveau token avec rôle pharmacie
         pharmacie: {
           _id: pharmacie._id,
           nom: pharmacie.nom,
           prenom: pharmacie.prenom,
+          email: pharmacie.email,
+          role: pharmacie.role,
           nomPharmacie: pharmacie.pharmacieInfo.nomPharmacie,
           adresseGoogleMaps: pharmacie.pharmacieInfo.adresseGoogleMaps,
           livraisonDisponible: pharmacie.pharmacieInfo.livraisonDisponible,
           estDeGarde: pharmacie.pharmacieInfo.estDeGarde,
           heuresOuverture: pharmacie.pharmacieInfo.heuresOuverture,
-          telephone: pharmacie.telephone,
         },
+        connexionId: connexion._id,
       },
     });
   } catch (error) {
     console.error('❌ Erreur connexion pharmacie:', error);
-    createDetailedLog('ERREUR_CONNEXION_PHARMACIE', {
+    createDetailedLog('CONNEXION_PHARMACIE_ECHEC', {
       erreur: error.message,
       stack: error.stack,
+      pharmacyId: req.body.pharmacyId,
+      userId: req.user?._id,
     });
     res.status(500).json({
       success: false,
@@ -1104,6 +1101,173 @@ exports.rechercheGeolocalisee = async (req, res) => {
   }
 };
 
+exports.creerCommande = async (req, res) => {
+  try {
+
+    console.log('📥 req.body brut:', JSON.stringify(req.body, null, 2));
+    const { pharmacyId, medicaments, livraison, adresseLivraison } = req.body;
+    console.log('🔍 pharmacyId extrait:', pharmacyId);
+    const userId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(pharmacyId)) {
+      createDetailedLog('CREER_COMMANDE_ECHEC', { raison: 'ID_PHARMACIE_INVALIDE', pharmacyId });
+      return res.status(400).json({ success: false, message: 'ID de pharmacie invalide' });
+    }
+
+    const pharmacie = await User.findById(pharmacyId);
+    if (!pharmacie || pharmacie.role !== 'pharmacie' || pharmacie.pharmacieInfo.statutDemande !== 'approuvee') {
+      createDetailedLog('CREER_COMMANDE_ECHEC', { raison: 'PHARMACIE_NON_TROUVEE_OU_NON_APPROUVEE', pharmacyId });
+      return res.status(404).json({ success: false, message: 'Pharmacie non trouvée ou non approuvée' });
+    }
+
+    const client = await User.findById(userId);
+    if (!client) {
+      createDetailedLog('CREER_COMMANDE_ECHEC', { raison: 'CLIENT_NON_TROUVE', userId });
+      return res.status(404).json({ success: false, message: 'Client non trouvé' });
+    }
+
+    // Calculer le total
+    const total = medicaments.reduce((sum, item) => sum + item.prix * item.quantite, 0);
+
+    const commande = new Commande({
+      userId,
+      pharmacyId,
+      medicaments,
+      total,
+      livraison,
+      adresseLivraison: livraison ? adresseLivraison : undefined,
+    });
+
+    await commande.save();
+
+    // Supprimer le panier après création de la commande
+    await Cart.deleteOne({ userId, pharmacyId });
+
+    // Envoyer une notification à la pharmacie
+    await sendCommandeNotification(pharmacie, commande, client);
+
+    createDetailedLog('CREER_COMMANDE_REUSSI', {
+      commandeId: commande._id,
+      userId,
+      pharmacyId,
+      total,
+    });
+
+    res.json({
+      success: true,
+      message: 'Commande créée avec succès',
+      data: { commandeId: commande._id },
+    });
+  } catch (error) {
+    console.error('❌ Erreur création commande:', error);
+    createDetailedLog('ERREUR_CREER_COMMANDE', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?._id,
+    });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
+// Obtenir les commandes d'une pharmacie
+exports.getCommandesPharmacie = async (req, res) => {
+  try {
+    const { page = 1, limit = 50, statut, dateDebut, dateFin } = req.query;
+    const skip = (page - 1) * limit;
+
+    const filter = { pharmacyId: req.user._id };
+
+    if (statut) {
+      filter.statut = statut;
+    }
+    if (dateDebut && dateFin) {
+      filter.dateCommande = {
+        $gte: new Date(dateDebut),
+        $lte: new Date(dateFin),
+      };
+    }
+
+    const commandes = await Commande.find(filter)
+      .populate('userId', 'nom prenom email telephone')
+      .sort({ dateCommande: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Commande.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: {
+        commandes,
+        pagination: {
+          current: parseInt(page),
+          pages: Math.ceil(total / limit),
+          total,
+          limit: parseInt(limit),
+        },
+      },
+    });
+  } catch (error) {
+    console.error('❌ Erreur récupération commandes:', error);
+    createDetailedLog('ERREUR_GET_COMMANDES_PHARMACIE', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?._id,
+    });
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur',
+    });
+  }
+};
+
+// Mettre à jour le statut d'une commande
+exports.updateStatutCommande = async (req, res) => {
+  try {
+    const { commandeId, statut } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(commandeId)) {
+      createDetailedLog('UPDATE_STATUT_COMMANDE_ECHEC', { raison: 'ID_COMMANDE_INVALIDE', commandeId });
+      return res.status(400).json({ success: false, message: 'ID de commande invalide' });
+    }
+
+    if (!['en_attente', 'en_preparation', 'prete', 'livree', 'annulee'].includes(statut)) {
+      createDetailedLog('UPDATE_STATUT_COMMANDE_ECHEC', { raison: 'STATUT_INVALIDE', statut });
+      return res.status(400).json({ success: false, message: 'Statut invalide' });
+    }
+
+    const commande = await Commande.findOneAndUpdate(
+      { _id: commandeId, pharmacyId: req.user._id },
+      { statut, dateMiseAJour: new Date() },
+      { new: true }
+    );
+
+    if (!commande) {
+      createDetailedLog('UPDATE_STATUT_COMMANDE_ECHEC', { raison: 'COMMANDE_NON_TROUVEE', commandeId });
+      return res.status(404).json({ success: false, message: 'Commande non trouvée' });
+    }
+
+    createDetailedLog('UPDATE_STATUT_COMMANDE_REUSSI', {
+      commandeId,
+      statut,
+      userId: req.user._id,
+    });
+
+    res.json({
+      success: true,
+      message: `Statut de la commande mis à jour à "${statut}"`,
+      data: { commande },
+    });
+  } catch (error) {
+    console.error('❌ Erreur mise à jour statut commande:', error);
+    createDetailedLog('ERREUR_UPDATE_STATUT_COMMANDE', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?._id,
+    });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
 
 
 
@@ -1128,4 +1292,7 @@ getMonProfil: exports.getMonProfil, // Use exports.getMonProfil
   toggleLivraison: exports.toggleLivraison,
   getPharmaciesDeGarde: exports.getPharmaciesDeGarde,
   rechercheGeolocalisee: exports.rechercheGeolocalisee,
+  creerCommande: exports.creerCommande,
+  getCommandesPharmacie: exports.getCommandesPharmacie,
+  updateStatutCommande: exports.updateStatutCommande,
 };

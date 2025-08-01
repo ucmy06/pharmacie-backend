@@ -1,5 +1,3 @@
-// C:\reactjs node mongodb\pharmacie-backend\src\routes\cart.js
-
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
@@ -8,8 +6,6 @@ const Cart = mongoose.connection.useDb('pharmacies').model('Cart', require('../m
 const { User } = require('../models/User');
 const Medicament = require('../models/Medicament');
 const DrugImage = mongoose.connection.useDb('pharmacies').model('DrugImage', require('../models/DrugImage').schema);
-
-
 
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -21,25 +17,41 @@ router.get('/', authenticate, async (req, res) => {
       .populate('pharmacyId', 'pharmacieInfo.nomPharmacie pharmacieInfo.livraisonDisponible')
       .lean();
 
-    // Ajouter les informations de la pharmacie et calculer le total
-    const formattedCarts = carts.map(cart => ({
-      pharmacyId: cart.pharmacyId._id,
-      pharmacieInfo: {
-        nomPharmacie: cart.pharmacyId.pharmacieInfo.nomPharmacie,
-        livraisonDisponible: cart.pharmacyId.pharmacieInfo.livraisonDisponible
-      },
-      medicaments: cart.items.map(item => ({
-        medicamentId: item.medicamentId,
-        nom: item.nom,
-        quantite: item.quantity,
-        prixUnitaire: item.prix,
-        image: item.image
-      })),
-      total: cart.items.reduce((sum, item) => sum + item.prix * item.quantity, 0)
-    }));
+    // Filtrer les items invalides et calculer le total
+    const formattedCarts = carts.map((cart) => {
+      const validItems = cart.items.filter((item) => {
+        const isValid = item && item.medicamentId && item.nom && item.prix && item.quantity;
+        if (!isValid) {
+          console.warn('⚠️ Item invalide dans le panier:', item);
+        }
+        return isValid;
+      });
 
-    console.log('✅ [getCarts] Paniers récupérés:', formattedCarts);
-    res.json({ success: true, data: formattedCarts });
+      return {
+        _id: cart._id, // Ajouter explicitement l'ID du panier
+        pharmacyId: cart.pharmacyId?._id || null,
+        pharmacieInfo: cart.pharmacyId
+          ? {
+              nomPharmacie: cart.pharmacyId.pharmacieInfo?.nomPharmacie || 'Inconnue',
+              livraisonDisponible: cart.pharmacyId.pharmacieInfo?.livraisonDisponible || false,
+            }
+          : { nomPharmacie: 'Inconnue', livraisonDisponible: false },
+        medicaments: validItems.map((item) => ({
+          medicamentId: item.medicamentId,
+          nom: item.nom,
+          quantite: item.quantity,
+          prixUnitaire: item.prix,
+          image: item.image,
+        })),
+        total: validItems.reduce((sum, item) => sum + item.prix * item.quantity, 0),
+      };
+    });
+
+    // Supprimer les paniers vides après filtrage
+    const nonEmptyCarts = formattedCarts.filter((cart) => cart.medicaments.length > 0);
+
+    console.log('✅ [getCarts] Paniers récupérés:', nonEmptyCarts);
+    res.json({ success: true, data: nonEmptyCarts });
   } catch (error) {
     console.error('❌ [getCarts] Erreur:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
@@ -47,7 +59,70 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 
+router.delete('/remove', authenticate, async (req, res) => {
+  try {
+    const { cartId, medicamentId } = req.body;
+    const userId = req.user._id;
 
+    console.log('🔍 [removeFromCart] Requête reçue:', { cartId, medicamentId, userId });
+
+    if (!cartId || !medicamentId) {
+      return res.status(400).json({ success: false, message: 'cartId et medicamentId sont requis' });
+    }
+
+    const cart = await Cart.findOne({ _id: cartId, userId });
+    if (!cart) {
+      return res.status(404).json({ success: false, message: 'Panier non trouvé' });
+    }
+
+    const initialLength = cart.items.length;
+    cart.items = cart.items.filter(item => item.medicamentId.toString() !== medicamentId);
+
+    if (cart.items.length === initialLength) {
+      return res.status(404).json({ success: false, message: 'Médicament non trouvé dans le panier' });
+    }
+
+    if (cart.items.length === 0) {
+      await Cart.deleteOne({ _id: cartId, userId });
+    } else {
+      cart.updatedAt = new Date();
+      await cart.save();
+    }
+
+    console.log('✅ [removeFromCart] Médicament supprimé du panier:', cartId);
+    res.json({ success: true, message: 'Médicament supprimé du panier' });
+  } catch (error) {
+    console.error('❌ [removeFromCart] Erreur:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+
+router.delete('/clear', authenticate, async (req, res) => {
+  try {
+    const { cartId } = req.body;
+    const userId = req.user._id;
+
+    console.log('🔍 [clearCart] Requête reçue:', { cartId, userId });
+
+    if (!cartId) {
+      return res.status(400).json({ success: false, message: 'cartId est requis' });
+    }
+
+    const cart = await Cart.findOneAndDelete({ _id: cartId, userId });
+    if (!cart) {
+      return res.status(404).json({ success: false, message: 'Panier non trouvé' });
+    }
+
+    console.log('✅ [clearCart] Panier vidé:', cartId);
+    res.json({ success: true, message: 'Panier vidé avec succès' });
+  } catch (error) {
+    console.error('❌ [clearCart] Erreur:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+// La route POST /api/cart/add reste inchangée
 router.post('/add', authenticate, async (req, res) => {
   try {
     const { medicamentId, pharmacyId, quantity = 1 } = req.body;
@@ -80,7 +155,7 @@ router.post('/add', authenticate, async (req, res) => {
     // Récupérer l'image depuis DrugImage
     console.log(`🔍 [addToCart] Recherche image pour nom: ${medicament.nom}, nom_generique: ${medicament.nom_generique || 'aucun'}`);
     const image = await DrugImage.findOne({
-      nom: { $in: [medicament.nom.toLowerCase(), medicament.nom_generique?.toLowerCase()].filter(Boolean) }
+      nom: { $in: [medicament.nom.toLowerCase(), medicament.nom_generique?.toLowerCase()].filter(Boolean) },
     }).lean();
     console.log(`🔍 [addToCart] Image trouvée pour ${medicament.nom}:`, image ? JSON.stringify(image.images) : 'Aucune');
 
@@ -91,7 +166,7 @@ router.post('/add', authenticate, async (req, res) => {
     }
 
     // Vérifier si le médicament est déjà dans le panier
-    const existingItem = cart.items.find(item => item.medicamentId.toString() === medicamentId);
+    const existingItem = cart.items.find((item) => item.medicamentId.toString() === medicamentId);
     if (existingItem) {
       existingItem.quantity += quantity;
       if (existingItem.quantity > medicament.quantite_stock) {
@@ -105,8 +180,8 @@ router.post('/add', authenticate, async (req, res) => {
         quantity,
         image: image && image.images && image.images.length > 0 ? {
           nomFichier: image.images[0].nomFichier,
-          cheminFichier: image.images[0].cheminFichier
-        } : null
+          cheminFichier: image.images[0].cheminFichier,
+        } : null,
       });
     }
 
@@ -120,5 +195,7 @@ router.post('/add', authenticate, async (req, res) => {
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
+
+
 
 module.exports = router;
