@@ -153,6 +153,10 @@ const userSchema = new mongoose.Schema({
   resetPasswordExpires: {
     type: Date
   },
+  pushSubscription: {
+    type: Object, // Stocke l'abonnement push (endpoint, keys.auth, keys.p256dh)
+    default: null
+  }, // AJOUTER ICI
   lastLogin: {
     type: Date
   },

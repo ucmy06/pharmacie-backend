@@ -1231,7 +1231,7 @@ exports.updateStatutCommande = async (req, res) => {
       return res.status(400).json({ success: false, message: 'ID de commande invalide' });
     }
 
-    if (!['en_attente', 'en_preparation', 'prete', 'livree', 'annulee'].includes(statut)) {
+    if (!['en_attente', 'en_cours', 'terminée', 'annulée'].includes(statut)) {
       createDetailedLog('UPDATE_STATUT_COMMANDE_ECHEC', { raison: 'STATUT_INVALIDE', statut });
       return res.status(400).json({ success: false, message: 'Statut invalide' });
     }
@@ -1268,7 +1268,6 @@ exports.updateStatutCommande = async (req, res) => {
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 };
-
 
 
 module.exports = {

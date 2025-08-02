@@ -13,6 +13,48 @@ const mongoose = require('mongoose');
 const { getApprovedPharmacies, searchMedicaments } = require('../controllers/adminController');
 const { creerDemandePharmacie, getMaDemandePharmacie } = require('../controllers/demandePharmacieController');
 const { createDetailedLog } = require('../utils/logUtils');
+const webPush = require('web-push');
+
+
+router.get('/vapid-public-key', authenticate, (req, res) => {
+  res.json({ success: true, publicKey: process.env.VAPID_PUBLIC_KEY });
+});
+
+// Configurer web-push avec vos clés VAPID
+webPush.setVapidDetails(
+  'mailto:julienguenoukpati825@gmail.com',
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+);
+
+
+// Route pour enregistrer l'abonnement push
+router.post('/subscribe', authenticate, async (req, res) => {
+  try {
+    const subscription = req.body;
+    console.log('📥 [Subscribe] Abonnement reçu:', subscription);
+
+    if (!subscription.endpoint || !subscription.keys?.auth || !subscription.keys?.p256dh) {
+      createDetailedLog('SUBSCRIBE_ECHEC', { raison: 'SUBSCRIPTION_INVALIDE', subscription });
+      return res.status(400).json({ success: false, message: 'Abonnement invalide' });
+    }
+
+    await User.findByIdAndUpdate(req.user.id, { pushSubscription: subscription });
+    createDetailedLog('SUBSCRIBE_REUSSI', { userId: req.user.id });
+    res.json({ success: true, message: 'Abonnement enregistré' });
+  } catch (error) {
+    console.error('❌ Erreur enregistrement abonnement:', error);
+    createDetailedLog('ERREUR_SUBSCRIBE', {
+      erreur: error.message,
+      stack: error.stack,
+      userId: req.user?.id,
+    });
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+
+
 
 router.post('/commandes', authenticate, async (req, res) => {
   try {
@@ -134,6 +176,27 @@ router.post('/commandes', authenticate, async (req, res) => {
       commandeId: commande._id,
     });
     console.log('🔔 Notification créée pour pharmacie:', notificationPharmacie._id);
+
+
+// Envoyer une notification push à la pharmacie
+    const pharmacieUser = await User.findById(pharmacyId).select('pushSubscription'); // CHANGEMENT ICI : Renommé en pharmacieUser
+    if (pharmacieUser && pharmacieUser.pushSubscription) {
+      try {
+        await webPush.sendNotification(pharmacieUser.pushSubscription, JSON.stringify({
+          title: 'Nouvelle commande',
+          message: `Nouvelle commande (#${commande._id}) de ${req.user.nom} ${req.user.prenom}`,
+          icon: '/favicon.ico',
+        }));
+        console.log('📬 Notification push envoyée à la pharmacie:', pharmacyId);
+      } catch (error) {
+        console.error('❌ Erreur envoi notification push:', error);
+        createDetailedLog('ERREUR_NOTIFICATION_PUSH', {
+          erreur: error.message,
+          pharmacyId,
+        });
+      }
+    }
+
 
     // Créer une notification pour le client
     const notificationClient = await Notification.create({
@@ -279,7 +342,7 @@ router.get('/commandes', authenticate, checkRole(['client']), async (req, res) =
 router.get('/commandes/:id', authenticate, checkRole(['admin', 'pharmacie']), async (req, res) => {
   try {
     const commande = await Commande.findById(req.params.id)
-      .populate('clientId', 'nom prenom email')
+      .populate('userId', 'nom prenom email') // Changé de clientId à userId
       .populate('pharmacyId', 'pharmacieInfo.nomPharmacie');
     if (!commande) {
       return res.status(404).json({ success: false, message: 'Commande non trouvée' });
