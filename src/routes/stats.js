@@ -264,7 +264,7 @@ router.get('/commandes', authenticate, checkRole(['admin']), async (req, res) =>
   try {
     const totalCommandes = await Commande.countDocuments();
     const commandesEnAttente = await Commande.countDocuments({ statut: 'en_attente' });
-    const commandesLivrees = await Commande.countDocuments({ statut: 'livree' });
+    const commandesLivrees = await Commande.countDocuments({ statut: 'en_cours' });
 
     const evolutionCommandes = await Commande.aggregate([
       {

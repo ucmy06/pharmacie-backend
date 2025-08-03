@@ -1,5 +1,4 @@
 // C:\reactjs node mongodb\pharmacie-backend\src\socket.js
-
 const { Server } = require('socket.io');
 const http = require('http');
 
@@ -17,16 +16,55 @@ const initializeSocket = (app) => {
 
   io.on('connection', (socket) => {
     console.log('🔗 Client WebSocket connecté:', socket.id);
+    
+    // Événement unifié pour rejoindre une salle
+    socket.on('joinRoom', (userId) => {
+      socket.join(userId);
+      console.log(`🔗 Socket ${socket.id} a rejoint la salle: ${userId}`);
+      
+      // Confirmer la connexion
+      socket.emit('roomJoined', { 
+        room: userId, 
+        socketId: socket.id,
+        timestamp: new Date().toISOString()
+      });
+    });
+    
+    // Compatibilité avec l'ancien système
+    socket.on('join', (userId) => {
+      socket.join(userId);
+      console.log(`🔗 Socket ${socket.id} a rejoint la salle (join): ${userId}`);
+    });
+    
     socket.on('joinPharmacie', (userId) => {
       socket.join(userId);
-      console.log(`🔗 Client rejoint la salle: ${userId}`);
+      console.log(`🔗 Pharmacie ${socket.id} a rejoint la salle: ${userId}`);
     });
-    socket.on('disconnect', () => {
-      console.log('🔗 Client WebSocket déconnecté:', socket.id);
+    
+    // Événement de test pour vérifier la connexion
+    socket.on('ping', (data) => {
+      console.log('🏓 Ping reçu:', data);
+      socket.emit('pong', { 
+        message: 'Connexion active', 
+        timestamp: new Date().toISOString(),
+        socketId: socket.id 
+      });
+    });
+    
+    socket.on('disconnect', (reason) => {
+      console.log('🔗 Client WebSocket déconnecté:', socket.id, 'Raison:', reason);
     });
   });
 
   return { server, io };
 };
 
-module.exports = { initializeSocket, getIo: () => io };
+const getIo = () => {
+  if (!io) {
+    console.warn('⚠️ Socket.IO non initialisé!');
+    return null;
+  }
+  return io;
+};
+
+module.exports = { initializeSocket, getIo };

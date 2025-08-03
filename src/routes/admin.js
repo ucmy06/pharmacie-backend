@@ -1,5 +1,4 @@
-// Fichier : src/routes/admin.js
-// Fichier : src/routes/admin.js
+// C:\reactjs node mongodb\pharmacie-backend\src\routes\admin.js
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middlewares/auth');
@@ -22,7 +21,7 @@ const {
   approveSuppressionRequest,
   rejectSuppressionRequest,
   uploadDrugImageHandler,
-  getAllMedicaments
+  getAllMedicaments,
 } = require('../controllers/adminController');
 const {
   getAllUsers,
@@ -30,12 +29,13 @@ const {
   updateUserRole,
   toggleUserStatus,
   deleteUser,
-  getUserStats
+  getUserStats,
 } = require('../controllers/userController');
 const {
   getSearchStats,
-  getPharmacieStats
+  getPharmacieStats,
 } = require('../controllers/statsController');
+const Notification = require('../models/Notification');
 
 router.use(authenticate);
 router.use(requireAdmin);
@@ -73,5 +73,35 @@ router.post('/pharmacy/:pharmacyId/medicament/:medicamentId/image', uploadDrugIm
 router.post('/drug/image', uploadDrugImages, uploadDrugImageHandler);
 
 router.get('/medicaments/all', getAllMedicaments);
+
+// Nouvelle route pour les notifications des administrateurs
+router.get('/notifications', async (req, res) => {
+  try {
+    const notifications = await Notification.find({ userId: req.user.id, lu: false })
+      .sort({ date: -1 })
+      .limit(50);
+    res.json({ success: true, data: { notifications } });
+  } catch (error) {
+    console.error('❌ Erreur récupération notifications admin:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+router.put('/notifications/:id/lu', async (req, res) => {
+  try {
+    const notification = await Notification.findOneAndUpdate(
+      { _id: req.params.id, userId: req.user.id },
+      { lu: true },
+      { new: true }
+    );
+    if (!notification) {
+      return res.status(404).json({ success: false, message: 'Notification non trouvée' });
+    }
+    res.json({ success: true, message: 'Notification marquée comme lue' });
+  } catch (error) {
+    console.error('❌ Erreur marquage notification admin:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
 
 module.exports = router;
