@@ -723,77 +723,173 @@ async function updatePharmacieDocuments(req, res) {
   }
 }
 
+// Remplacez la fonction getAdminDashboard par cette version corrigée :
 const getAdminDashboard = async (req, res) => {
   try {
     console.log('🟢 [getAdminDashboard] Début récupération tableau de bord');
-    console.log('🟢 [getAdminDashboard] Headers:', req.headers.authorization);
 
-    // Appeler les routes statistiques
-    console.log('🟢 [getAdminDashboard] Appel des endpoints statistiques...');
-    const [generalStatsResponse, pharmacieStatsResponse, clientStatsResponse, commandeStatsResponse] = await Promise.all([
-      axios.get(`${API_URL}/api/stats/general`, {
-        headers: { Authorization: req.headers.authorization },
-      }).catch(err => {
-        console.error('❌ [getAdminDashboard] Erreur /api/stats/general:', err.message, err.stack);
-        throw err;
-      }),
-      axios.get(`${API_URL}/api/stats/pharmacies`, {
-        headers: { Authorization: req.headers.authorization },
-      }).catch(err => {
-        console.error('❌ [getAdminDashboard] Erreur /api/stats/pharmacies:', err.message, err.stack);
-        throw err;
-      }),
-      axios.get(`${API_URL}/api/stats/clients`, {
-        headers: { Authorization: req.headers.authorization },
-      }).catch(err => {
-        console.error('❌ [getAdminDashboard] Erreur /api/stats/clients:', err.message, err.stack);
-        throw err;
-      }),
-      axios.get(`${API_URL}/api/stats/commandes`, {
-        headers: { Authorization: req.headers.authorization },
-      }).catch(err => {
-        console.error('❌ [getAdminDashboard] Erreur /api/stats/commandes:', err.message, err.stack);
-        throw err;
-      }),
+    // Récupération directe des statistiques depuis la base de données
+    const [
+      totalUsers,
+      totalPharmacies,
+      totalClients,
+      totalAdmins,
+      pharmaciesApprouvees,
+      pharmaciesEnAttente,
+      pharmaciesRejetees,
+      activeUsers,
+      activiteRecente,
+      pharmaciesParStatut,
+      userStats,
+      evolutionInscriptions
+    ] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ role: 'pharmacie' }),
+      User.countDocuments({ role: 'client' }),
+      User.countDocuments({ role: 'admin' }),
+      User.countDocuments({ role: 'pharmacie', 'pharmacieInfo.statutDemande': 'approuvee' }),
+      User.countDocuments({ role: 'pharmacie', 'pharmacieInfo.statutDemande': 'en_attente' }),
+      User.countDocuments({ role: 'pharmacie', 'pharmacieInfo.statutDemande': 'rejetee' }),
+      User.countDocuments({ isActive: true }),
+      User.find({})
+        .select('nom prenom email role createdAt pharmacieInfo.nomPharmacie')
+        .sort({ createdAt: -1 })
+        .limit(10),
+      User.aggregate([
+        { $match: { role: 'pharmacie' } },
+        {
+          $group: {
+            _id: '$pharmacieInfo.statutDemande',
+            count: { $sum: 1 }
+          }
+        }
+      ]),
+      User.aggregate([
+        {
+          $group: {
+            _id: '$role',
+            count: { $sum: 1 }
+          }
+        }
+      ]),
+      User.aggregate([
+        {
+          $group: {
+            _id: {
+              year: { $year: '$createdAt' },
+              month: { $month: '$createdAt' }
+            },
+            count: { $sum: 1 }
+          }
+        },
+        { $sort: { '_id.year': -1, '_id.month': -1 } },
+        { $limit: 12 }
+      ])
     ]);
 
-    console.log('🟢 [getAdminDashboard] Réponses reçues:', {
-      general: generalStatsResponse.status,
-      pharmacies: pharmacieStatsResponse.status,
-      clients: clientStatsResponse.status,
-      commandes: commandeStatsResponse.status,
+    // Utilisateurs récents (7 derniers jours)
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const recentUsers = await User.countDocuments({
+      createdAt: { $gte: sevenDaysAgo }
     });
 
-    const generalStats = generalStatsResponse.data.data;
-    const pharmacieStats = pharmacieStatsResponse.data.data;
-    const clientStats = clientStatsResponse.data.data;
-    const commandeStats = commandeStatsResponse.data.data;
+    // Statistiques des commandes (si le modèle Commande existe)
+    let commandeStats = {
+      totalCommandes: 0,
+      commandesEnAttente: 0,
+      commandesEnCours: 0,
+      commandesLivrees: 0,
+      commandesAnnulees: 0,
+      evolutionCommandes: [],
+      commandesParPharmacie: []
+    };
 
-    console.log('🟢 [getAdminDashboard] Données statistiques extraites');
+    try {
+      const Commande = require('../models/Commande');
+      const [
+        totalCommandes,
+        commandesEnAttente,
+        commandesEnCours,
+        commandesLivrees,
+        commandesAnnulees,
+        evolutionCommandes,
+        commandesParPharmacie
+      ] = await Promise.all([
+        Commande.countDocuments(),
+        Commande.countDocuments({ statut: 'en_attente' }),
+        Commande.countDocuments({ statut: 'en_cours' }),
+        Commande.countDocuments({ statut: 'terminée' }),
+        Commande.countDocuments({ statut: 'annulée' }),
+        Commande.aggregate([
+          {
+            $group: {
+              _id: {
+                year: { $year: '$dateCommande' },
+                month: { $month: '$dateCommande' }
+              },
+              count: { $sum: 1 },
+              total: { $sum: '$total' }
+            }
+          },
+          { $sort: { '_id.year': -1, '_id.month': -1 } },
+          { $limit: 12 }
+        ]),
+        Commande.aggregate([
+          {
+            $group: {
+              _id: '$pharmacyId',
+              count: { $sum: 1 },
+              total: { $sum: '$total' }
+            }
+          },
+          { $sort: { count: -1 } },
+          { $limit: 10 },
+          {
+            $lookup: {
+              from: 'users',
+              localField: '_id',
+              foreignField: '_id',
+              as: 'pharmacie'
+            }
+          },
+          { $unwind: '$pharmacie' },
+          {
+            $project: {
+              pharmacieNom: '$pharmacie.pharmacieInfo.nomPharmacie',
+              count: 1,
+              total: 1
+            }
+          }
+        ])
+      ]);
 
-    // Activité récente
-    console.log('🟢 [getAdminDashboard] Récupération activité récente...');
-    const activiteRecente = await User.find({})
-      .select('nom prenom email role createdAt pharmacieInfo.nomPharmacie')
-      .sort({ createdAt: -1 })
-      .limit(10);
+      commandeStats = {
+        totalCommandes,
+        commandesEnAttente,
+        commandesEnCours,
+        commandesLivrees,
+        commandesAnnulees,
+        evolutionCommandes,
+        commandesParPharmacie
+      };
+    } catch (commandeError) {
+      console.warn('⚠️ [getAdminDashboard] Modèle Commande non disponible:', commandeError.message);
+    }
 
-    console.log('🟢 [getAdminDashboard] Activité récente récupérée:', activiteRecente.length);
-
-    // Alertes
+    // Génération des alertes
     const alertes = [];
-    if (generalStats.demandesEnAttente > 0) {
+    if (pharmaciesEnAttente > 0) {
       alertes.push({
         type: 'warning',
-        message: `${generalStats.demandesEnAttente} demande(s) de pharmacie en attente d'approbation`,
+        message: `${pharmaciesEnAttente} demande(s) de pharmacie en attente d'approbation`,
         link: '/admin/pharmacy-requests',
         action: 'Voir les demandes',
       });
     }
-    if (generalStats.recentUsers > 50) {
+    if (recentUsers > 50) {
       alertes.push({
         type: 'info',
-        message: `${generalStats.recentUsers} nouvelles inscriptions cette semaine`,
+        message: `${recentUsers} nouvelles inscriptions cette semaine`,
         link: '/admin/users',
         action: 'Voir les utilisateurs',
       });
@@ -806,30 +902,41 @@ const getAdminDashboard = async (req, res) => {
         action: 'Voir les commandes',
       });
     }
+    if (commandeStats.commandesEnCours > 0) {
+      alertes.push({
+        type: 'warning',
+        message: `${commandeStats.commandesEnCours} commande(s) en cours de traitement`,
+        link: '/admin/commandes',
+        action: 'Voir les commandes',
+      });
+    }
 
-    console.log('🟢 [getAdminDashboard] Alertes générées:', alertes.length);
+    console.log('🟢 [getAdminDashboard] Données récupérées avec succès');
 
     res.json({
       success: true,
       data: {
         resume: {
-          totalUsers: generalStats.totalUsers,
-          totalPharmacies: pharmacieStats.totalPharmacies,
-          totalClients: clientStats.totalClients,
-          totalAdmins: generalStats.userStats.find((s) => s._id === 'admin')?.count || 0,
-          demandesEnAttente: generalStats.demandesEnAttente,
-          utilisateursActifsAujourdhui: generalStats.activeUsers,
-          nouvellesInscriptions: generalStats.recentUsers,
+          totalUsers,
+          totalPharmacies,
+          totalClients,
+          totalAdmins,
+          demandesEnAttente: pharmaciesEnAttente,
+          utilisateursActifsAujourdhui: activeUsers,
+          nouvellesInscriptions: recentUsers,
           totalCommandes: commandeStats.totalCommandes,
           commandesEnAttente: commandeStats.commandesEnAttente,
+          commandesEnCours: commandeStats.commandesEnCours,
           commandesLivrees: commandeStats.commandesLivrees,
+          commandesAnnulees: commandeStats.commandesAnnulees,
         },
-        pharmaciesParStatut: pharmacieStats.repartitionStatuts,
+        pharmaciesParStatut,
         activiteRecente,
         alertes,
-        evolutionInscriptions: generalStats.evolutionInscriptions,
+        evolutionInscriptions,
         evolutionCommandes: commandeStats.evolutionCommandes,
         commandesParPharmacie: commandeStats.commandesParPharmacie,
+        userStats
       },
     });
 
@@ -839,6 +946,7 @@ const getAdminDashboard = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération du tableau de bord',
+      error: error.message,
     });
   }
 };
