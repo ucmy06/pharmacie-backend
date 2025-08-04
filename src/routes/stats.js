@@ -1,3 +1,5 @@
+//C:\reactjs node mongodb\pharmacie-backend\src\routes\stats.js
+
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middlewares/auth');

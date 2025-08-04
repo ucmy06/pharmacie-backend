@@ -30,7 +30,8 @@ router.get('/list', authenticate, async (req, res) => {
       name,
       latitude,
       longitude,
-      prescriptionOnly
+      prescriptionOnly,
+      sortByPrice // Ajout du paramètre manquant
     } = req.query;
 
     console.log('🔍 [listMedicaments] Requête reçue:', req.query);
@@ -38,10 +39,15 @@ router.get('/list', authenticate, async (req, res) => {
     const pharmacies = await User.find({
       role: 'pharmacie',
       isActive: true,
-      'pharmacieInfo.baseMedicament': { $exists: true, $ne: null }
+      'pharmacieInfo.baseMedicament': { $exists: true, $ne: null, $ne: '' }
     })
-      .select('_id pharmacieInfo.nomPharmacie pharmacieInfo.adresseGoogleMaps')
+      .select('_id pharmacieInfo.nomPharmacie pharmacieInfo.adresseGoogleMaps pharmacieInfo.baseMedicament')
       .lean();
+
+    console.log('🔍 [listMedicaments] Pharmacies trouvées:', pharmacies.length);
+    pharmacies.forEach(p => {
+      console.log(`🏪 Pharmacie: ${p.pharmacieInfo?.nomPharmacie} - Base: ${p.pharmacieInfo?.baseMedicament}`);
+    });
 
     if (!pharmacies.length) {
       console.log('⚠️ [listMedicaments] Aucune pharmacie trouvée');
@@ -62,21 +68,42 @@ router.get('/list', authenticate, async (req, res) => {
       ];
     }
 
+    console.log('🔍 [listMedicaments] Query MongoDB:', JSON.stringify(query, null, 2));
+
     // Récupérer tous les médicaments et leurs noms uniques
     const allMedicaments = await Promise.all(
       pharmacies.map(async (pharmacy) => {
         try {
-          const db = connectToPharmacyDB(pharmacy.pharmacieInfo.baseMedicament);
+          // Vérifier que la base existe et n'est pas undefined
+          const baseName = pharmacy.pharmacieInfo?.baseMedicament;
+          if (!baseName || baseName === 'undefined') {
+            console.log(`⚠️ [listMedicaments] Base invalide pour ${pharmacy.pharmacieInfo?.nomPharmacie}: ${baseName}`);
+            return [];
+          }
+
+          console.log(`🔍 [listMedicaments] Connexion à la base: ${baseName}`);
+          const db = connectToPharmacyDB(baseName);
           const hasMedicamentsCollection = await collectionExists(db, 'medicaments');
           if (!hasMedicamentsCollection) {
-            console.log(`⚠️ Aucune collection 'medicaments' dans ${pharmacy.pharmacieInfo.baseMedicament}`);
+            console.log(`⚠️ Aucune collection 'medicaments' dans ${baseName}`);
             return [];
           }
 
           const Medicament = db.model('Medicament', require('../models/Medicament').schema, 'medicaments');
+          
+          // Compter d'abord les documents qui correspondent
+          const count = await Medicament.countDocuments(query);
+          console.log(`🔍 [listMedicaments] ${pharmacy.pharmacieInfo.nomPharmacie}: ${count} médicaments trouvés avec la query`);
+
+          if (count === 0) {
+            return [];
+          }
+
           const medicaments = await Medicament.find(query)
             .lean()
             .select('nom nom_generique prix quantite_stock est_sur_ordonnance categorie forme date_peremption dosage code_barre');
+
+          console.log(`🔍 [listMedicaments] ${pharmacy.pharmacieInfo.nomPharmacie}: récupération de ${medicaments.length} médicaments`);
 
           return medicaments.map(med => ({
             ...med,
@@ -87,26 +114,35 @@ router.get('/list', authenticate, async (req, res) => {
             }
           }));
         } catch (error) {
-          console.error(`❌ Erreur pour pharmacie ${pharmacy.pharmacieInfo.nomPharmacie}:`, error);
+          console.error(`❌ Erreur pour pharmacie ${pharmacy.pharmacieInfo?.nomPharmacie}:`, error);
           return [];
         }
       })
     );
 
     const allMeds = allMedicaments.flat();
+    console.log(`🔍 [listMedicaments] Total médicaments avant images: ${allMeds.length}`);
+
+    if (allMeds.length === 0) {
+      console.log('⚠️ [listMedicaments] Aucun médicament trouvé avec les critères spécifiés');
+      return res.json({ success: true, data: [] });
+    }
+
     const uniqueNames = [...new Set(allMeds.map(med => med.nom.toLowerCase()))];
+    console.log(`🔍 [listMedicaments] Noms uniques pour images: ${uniqueNames.length}`);
 
     // Récupérer les images en une seule requête
     const drugImages = await DrugImage.find({
       nom: { $in: uniqueNames }
     }).lean();
 
+    console.log(`🔍 [listMedicaments] Images trouvées: ${drugImages.length}`);
+
     const medsWithImages = allMeds.map(med => {
       const image = drugImages.find(img => 
         img.nom === med.nom.toLowerCase() || 
         (med.nom_generique && img.nom === med.nom_generique.toLowerCase())
       );
-      console.log(`🔍 [listMedicaments] Image pour ${med.nom}:`, image ? JSON.stringify(image.images) : 'Aucune');
       return {
         ...med,
         images: image && image.images ? image.images : []
@@ -114,7 +150,24 @@ router.get('/list', authenticate, async (req, res) => {
     });
 
     let sortedMedicaments = medsWithImages;
+
+    // Tri par prix (AJOUT DE LA LOGIQUE MANQUANTE)
+    if (sortByPrice) {
+      console.log(`🔍 [listMedicaments] Tri par prix: ${sortByPrice}`);
+      sortedMedicaments = sortedMedicaments.sort((a, b) => {
+        if (sortByPrice === 'asc') {
+          return parseFloat(a.prix) - parseFloat(b.prix);
+        } else if (sortByPrice === 'desc') {
+          return parseFloat(b.prix) - parseFloat(a.prix);
+        }
+        return 0;
+      });
+    }
+
+    // Tri par proximité
     if (latitude && longitude && req.query.sortByProximity === 'true') {
+      console.log(`🔍 [listMedicaments] Tri par proximité activé`);
+      
       const calculateDistance = (lat1, lon1, lat2, lon2) => {
         const R = 6371e3;
         const φ1 = (lat1 * Math.PI) / 180;
@@ -136,7 +189,7 @@ router.get('/list', authenticate, async (req, res) => {
         return null;
       };
 
-      sortedMedicaments = medsWithImages.sort((a, b) => {
+      sortedMedicaments = sortedMedicaments.sort((a, b) => {
         const coordA = getCoordinates(a.pharmacieInfo.adresseGoogleMaps);
         const coordB = getCoordinates(b.pharmacieInfo.adresseGoogleMaps);
         if (!coordA || !coordB) return 0;
@@ -146,10 +199,87 @@ router.get('/list', authenticate, async (req, res) => {
       });
     }
 
-    console.log('✅ [listMedicaments] Médicaments récupérés:', sortedMedicaments.length);
+    console.log('✅ [listMedicaments] Médicaments finaux:', sortedMedicaments.length);
     res.json({ success: true, data: sortedMedicaments });
   } catch (error) {
     console.error('❌ [listMedicaments] Erreur:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur: ' + error.message });
+  }
+});
+
+// Endpoint /filters - pour récupérer les filtres disponibles
+router.get('/filters', authenticate, async (req, res) => {
+  try {
+    console.log('🔍 [getFilters] Récupération des filtres...');
+
+    const pharmacies = await User.find({
+      role: 'pharmacie',
+      isActive: true,
+      'pharmacieInfo.baseMedicament': { $exists: true, $ne: null, $ne: '', $ne: 'undefined' }
+    })
+      .select('_id pharmacieInfo.baseMedicament pharmacieInfo.nomPharmacie')
+      .lean();
+
+    console.log('🔍 [getFilters] Pharmacies trouvées:', pharmacies.length);
+    pharmacies.forEach(p => {
+      console.log(`🏪 Pharmacie: ${p.pharmacieInfo?.nomPharmacie} - Base: ${p.pharmacieInfo?.baseMedicament}`);
+    });
+
+    if (!pharmacies.length) {
+      console.log('⚠️ [getFilters] Aucune pharmacie trouvée');
+      return res.json({ success: true, data: { categories: [], forms: [] } });
+    }
+
+    const allCategories = new Set();
+    const allForms = new Set();
+
+    await Promise.all(
+      pharmacies.map(async (pharmacy) => {
+        try {
+          // Vérifier que la base existe et n'est pas undefined
+          const baseName = pharmacy.pharmacieInfo?.baseMedicament;
+          if (!baseName || baseName === 'undefined') {
+            console.log(`⚠️ [getFilters] Base invalide pour ${pharmacy.pharmacieInfo?.nomPharmacie}: ${baseName}`);
+            return;
+          }
+
+          console.log(`🔍 [getFilters] Connexion à la base: ${baseName}`);
+          const db = connectToPharmacyDB(baseName);
+          const hasMedicamentsCollection = await collectionExists(db, 'medicaments');
+          if (!hasMedicamentsCollection) {
+            console.log(`⚠️ [getFilters] Aucune collection 'medicaments' dans ${baseName}`);
+            return;
+          }
+
+          const Medicament = db.model('Medicament', require('../models/Medicament').schema, 'medicaments');
+          
+          // Récupérer les catégories distinctes
+          const categories = await Medicament.distinct('categorie');
+          categories.forEach(cat => {
+            if (cat && cat.trim()) allCategories.add(cat.trim());
+          });
+
+          // Récupérer les formes distinctes
+          const forms = await Medicament.distinct('forme');
+          forms.forEach(form => {
+            if (form && form.trim()) allForms.add(form.trim());
+          });
+
+        } catch (error) {
+          console.error(`❌ [getFilters] Erreur pour pharmacie ${pharmacy.pharmacieInfo?.nomPharmacie}:`, error);
+        }
+      })
+    );
+
+    const result = {
+      categories: Array.from(allCategories).sort(),
+      forms: Array.from(allForms).sort()
+    };
+
+    console.log('✅ [getFilters] Filtres récupérés:', result);
+    res.json({ success: true, data: result });
+  } catch (error) {
+    console.error('❌ [getFilters] Erreur:', error);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
@@ -231,7 +361,6 @@ router.get('/search', async (req, res) => {
               img.nom === med.nom.toLowerCase() || 
               (med.nom_generique && img.nom === med.nom_generique.toLowerCase())
             );
-            console.log(`🔍 [searchMedicaments] Image pour ${med.nom}:`, image ? JSON.stringify(image.images) : 'Aucune');
             return {
               ...med,
               images: image && image.images ? image.images : []

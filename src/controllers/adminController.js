@@ -725,34 +725,62 @@ async function updatePharmacieDocuments(req, res) {
 
 const getAdminDashboard = async (req, res) => {
   try {
+    console.log('🟢 [getAdminDashboard] Début récupération tableau de bord');
+    console.log('🟢 [getAdminDashboard] Headers:', req.headers.authorization);
+
     // Appeler les routes statistiques
+    console.log('🟢 [getAdminDashboard] Appel des endpoints statistiques...');
     const [generalStatsResponse, pharmacieStatsResponse, clientStatsResponse, commandeStatsResponse] = await Promise.all([
       axios.get(`${API_URL}/api/stats/general`, {
         headers: { Authorization: req.headers.authorization },
+      }).catch(err => {
+        console.error('❌ [getAdminDashboard] Erreur /api/stats/general:', err.message, err.stack);
+        throw err;
       }),
       axios.get(`${API_URL}/api/stats/pharmacies`, {
         headers: { Authorization: req.headers.authorization },
+      }).catch(err => {
+        console.error('❌ [getAdminDashboard] Erreur /api/stats/pharmacies:', err.message, err.stack);
+        throw err;
       }),
       axios.get(`${API_URL}/api/stats/clients`, {
         headers: { Authorization: req.headers.authorization },
+      }).catch(err => {
+        console.error('❌ [getAdminDashboard] Erreur /api/stats/clients:', err.message, err.stack);
+        throw err;
       }),
       axios.get(`${API_URL}/api/stats/commandes`, {
         headers: { Authorization: req.headers.authorization },
+      }).catch(err => {
+        console.error('❌ [getAdminDashboard] Erreur /api/stats/commandes:', err.message, err.stack);
+        throw err;
       }),
     ]);
+
+    console.log('🟢 [getAdminDashboard] Réponses reçues:', {
+      general: generalStatsResponse.status,
+      pharmacies: pharmacieStatsResponse.status,
+      clients: clientStatsResponse.status,
+      commandes: commandeStatsResponse.status,
+    });
 
     const generalStats = generalStatsResponse.data.data;
     const pharmacieStats = pharmacieStatsResponse.data.data;
     const clientStats = clientStatsResponse.data.data;
     const commandeStats = commandeStatsResponse.data.data;
 
-    // Activité récente (dernières inscriptions)
+    console.log('🟢 [getAdminDashboard] Données statistiques extraites');
+
+    // Activité récente
+    console.log('🟢 [getAdminDashboard] Récupération activité récente...');
     const activiteRecente = await User.find({})
       .select('nom prenom email role createdAt pharmacieInfo.nomPharmacie')
       .sort({ createdAt: -1 })
       .limit(10);
 
-    // Alertes/notifications
+    console.log('🟢 [getAdminDashboard] Activité récente récupérée:', activiteRecente.length);
+
+    // Alertes
     const alertes = [];
     if (generalStats.demandesEnAttente > 0) {
       alertes.push({
@@ -779,6 +807,8 @@ const getAdminDashboard = async (req, res) => {
       });
     }
 
+    console.log('🟢 [getAdminDashboard] Alertes générées:', alertes.length);
+
     res.json({
       success: true,
       data: {
@@ -802,8 +832,10 @@ const getAdminDashboard = async (req, res) => {
         commandesParPharmacie: commandeStats.commandesParPharmacie,
       },
     });
+
+    console.log('🟢 [getAdminDashboard] Réponse envoyée');
   } catch (error) {
-    console.error('❌ Erreur tableau de bord:', error);
+    console.error('❌ [getAdminDashboard] Erreur détaillée:', error.message, error.stack);
     res.status(500).json({
       success: false,
       message: 'Erreur serveur lors de la récupération du tableau de bord',
