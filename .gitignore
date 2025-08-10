@@ -142,3 +142,12 @@ dist
 .svelte-kit
 
 # End of https://www.toptal.com/developers/gitignore/api/node
+
+# Ignorer toutes les images uploadées
+Uploads/
+
+
+# Ignorer uniquement les documents et pharmacies
+Uploads/documents/
+Uploads/pharmacies/
+Uploads/medicaments/
