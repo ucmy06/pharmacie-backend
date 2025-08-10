@@ -650,10 +650,124 @@ const sendPharmacyModificationRequestNotification = async (modificationData) => 
   }
 };
 
+
+const sendPharmacyAccessPassword = async (email, nomPharmacie, nomUtilisateur, motDePasse) => {
+  const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: `Accès approuvé à la pharmacie ${nomPharmacie}`,
+    html: `
+      <h1>Accès approuvé</h1>
+      <p>Bonjour ${nomUtilisateur},</p>
+      <p>Votre demande d'accès à la pharmacie ${nomPharmacie} a été approuvée.</p>
+      <p>Utilisez le mot de passe suivant pour vous connecter : <strong>${motDePasse}</strong></p>
+      <p>Pour des raisons de sécurité, veuillez changer ce mot de passe après votre première connexion.</p>
+      <p>Cordialement,<br>L'équipe PharmOne</p>
+    `,
+  };
+
+  await transporter.sendMail(mailOptions);
+  console.log(`✅ E-mail envoyé à ${email} avec le mot de passe`);
+};
+
+const sendIntegrationRequestNotification = async (data) => {
+  const { nomPharmacie, nom, prenom, email, telephone, message, recipientEmail } = data;
+  
+  const transporter = createTransporter(); // Utiliser createTransporter
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: recipientEmail, // Email du createdBy
+    subject: `Nouvelle demande d'intégration pour ${nomPharmacie}`,
+    text: `
+      Nouvelle demande d'intégration reçue pour ${nomPharmacie} :
+      Nom : ${prenom} ${nom}
+      Email : ${email}
+      Téléphone : ${telephone}
+      Message : ${message || 'Aucun message fourni'}
+      Veuillez examiner cette demande dans votre tableau de bord à l'adresse : http://localhost:3000/pharmacie/demandes-integration
+    `,
+    html: `
+      <h2>Nouvelle demande d'intégration pour ${nomPharmacie}</h2>
+      <p><strong>Nom :</strong> ${prenom} ${nom}</p>
+      <p><strong>Email :</strong> ${email}</p>
+      <p><strong>Téléphone :</strong> ${telephone}</p>
+      <p><strong>Message :</strong> ${message || 'Aucun message fourni'}</p>
+      <p>Veuillez examiner cette demande dans votre <a href="http://localhost:3000/pharmacie/demandes-integration">tableau de bord</a>.</p>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log('📧 Notification de demande d\'intégration envoyée à:', recipientEmail);
+  } catch (error) {
+    console.error('❌ Erreur envoi email notification:', error);
+    throw error;
+  }
+};
+
+/**
+ * Envoie une confirmation au client qui a soumis une demande d'intégration
+ * @param {Object} data - Données de la demande
+ */
+const sendClientIntegrationRequestConfirmation = async (data) => {
+  const { nomPharmacie, nom, prenom, email, telephone, message } = data;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+        <h1 style="margin: 0; font-size: 28px;">💊 PharmOne</h1>
+        <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">Confirmation de votre demande</p>
+      </div>
+      <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <h2 style="color: #333; margin-top: 0; font-size: 24px;">Bonjour ${prenom} ${nom} 👋</h2>
+        <p style="color: #666; line-height: 1.6; font-size: 16px;">
+          Votre demande d'intégration à la pharmacie <strong>${nomPharmacie}</strong> a été envoyée avec succès.
+        </p>
+        <div style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; border-radius: 5px;">
+          <p style="color: #333; margin: 10px 0; line-height: 1.8;">
+            <strong>Nom :</strong> ${prenom} ${nom}<br>
+            <strong>Email :</strong> ${email}<br>
+            <strong>Téléphone :</strong> ${telephone}<br>
+            <strong>Message :</strong> ${message || 'Aucun message fourni'}
+          </p>
+        </div>
+        <p style="color: #666; line-height: 1.6; font-size: 16px;">
+          Vous recevrez une notification par e-mail une fois que votre demande aura été examinée par l'administrateur de la pharmacie.
+        </p>
+        <p style="color: #666; line-height: 1.6; font-size: 16px;">
+          Vous pouvez vérifier l'état de votre demande dans votre <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/ma-demande-pharmacie">tableau de bord</a>.
+        </p>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+        <p style="color: #999; font-size: 12px; text-align: center;">
+          Cet email a été envoyé automatiquement par PharmOne.<br>
+          Merci de ne pas répondre à cet email.
+        </p>
+      </div>
+    </div>
+  `;
+
+  try {
+    await sendEmail(email, `Confirmation de votre demande d'intégration à ${nomPharmacie}`, html);
+    console.log('📧 Confirmation de demande d\'intégration envoyée à:', email);
+  } catch (error) {
+    console.error('❌ Erreur envoi email confirmation:', error);
+    throw error;
+  }
+};
+
 module.exports = {
   sendVerificationEmail,
   sendResetPasswordEmail,
   sendPharmacyRequestNotification,
+  sendIntegrationRequestNotification,
   testEmailConfiguration,
   sendTestEmail,
   sendPharmacyApprovalEmail,
@@ -662,5 +776,7 @@ module.exports = {
   sendPharmacyAccessNotification,
   sendSuppressionRequestEmail, // Fixed export
   sendPharmacyModificationRequestNotification,
+  sendPharmacyAccessPassword,
+  sendClientIntegrationRequestConfirmation,
   sendEmail
 };

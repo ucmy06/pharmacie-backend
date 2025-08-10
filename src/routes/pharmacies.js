@@ -7,8 +7,7 @@ const { authenticate } = require('../middlewares/auth');
 const { checkRole, requirePharmacie } = require('../middlewares/roleCheck');
 const Notification = require('../models/Notification');
 const { createDetailedLog } = require('../utils/logUtils');
-
-console.log('🔍 authController:', Object.keys(authController));
+const { checkAssociation } = require('../controllers/pharmacieController');console.log('🔍 authController:', Object.keys(authController));
 console.log('🔍 authController.connexionPharmacie:', typeof authController.connexionPharmacie);
 console.log('🔍 pharmacieController:', Object.keys(pharmacieController));
 console.log('🔍 pharmacieController.connexionPharmacie:', typeof pharmacieController.connexionPharmacie);
@@ -18,6 +17,7 @@ router.get('/', authenticate, pharmacieController.getPharmacies);
 router.get('/garde', pharmacieController.getPharmaciesDeGarde);
 router.get('/recherche-geo', pharmacieController.rechercheGeolocalisee);
 router.get('/commandes', authenticate, checkRole(['pharmacie']), pharmacieController.getCommandesPharmacie);
+router.get('/demandes-integration', pharmacieController.listerDemandesIntegration);
 router.get('/notifications', authenticate, checkRole(['pharmacie']), async (req, res) => {
   try {
     const notifications = await Notification.find({ userId: req.user._id, lu: false })
@@ -41,11 +41,12 @@ router.get('/notifications', authenticate, checkRole(['pharmacie']), async (req,
     });
   }
 });
+
 router.get('/mes-connexions', authenticate, pharmacieController.getMesConnexions);
 router.get('/connexions-clients', authenticate, checkRole(['pharmacie']), pharmacieController.getConnexionsClients);
 router.get('/mon-profil', authenticate, checkRole(['pharmacie']), pharmacieController.getMonProfil);
 router.post('/login', pharmacieController.loginPharmacie);
-router.post('/pharmacie/connexion', authController.connexionPharmacie);
+router.post('/pharmacie/connexion', pharmacieController.connexionPharmacie);
 router.post('/changer-mot-de-passe', authenticate, checkRole(['pharmacie']), pharmacieController.changerMotDePasseInitial);
 router.post('/demande-suppression', authenticate, checkRole(['pharmacie']), pharmacieController.demanderSuppression);
 router.post('/demande-modification', authenticate, checkRole(['pharmacie']), pharmacieController.uploadPharmacyPhoto, pharmacieController.demanderModification);
@@ -59,5 +60,10 @@ router.put('/commandes/statut', authenticate, checkRole(['pharmacie']), pharmaci
 
 // Route dynamique en dernier
 router.get('/:pharmacyId', authenticate, pharmacieController.getPharmacieById);
-
+router.post('/demande-integration', authenticate, pharmacieController.demanderIntegration);
+router.get('/demandes-integration', authenticate, requirePharmacie, pharmacieController.getDemandesIntegration);
+router.post('/valider-demande-integration', authenticate, pharmacieController.approuverDemandeIntegration);
+router.get('/check-created-by', authenticate, pharmacieController.checkCreatedByStatus);
+router.get('/check-association', authenticate, checkAssociation);
+router.post('/login-by-password', pharmacieController.loginByPassword);
 module.exports = router;

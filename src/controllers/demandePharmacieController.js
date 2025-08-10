@@ -123,6 +123,38 @@ const creerDemandePharmacie = async (req, res) => {
   }
 };
 
+const soumettreDemandeIntegration = async (req, res) => {
+  try {
+    const { pharmacieId } = req.body;
+    const clientId = req.user._id;  // Utilisateur connecté
+
+    const pharmacie = await User.findById(pharmacieId);
+    if (!pharmacie || pharmacie.role !== 'pharmacie') {
+      return res.status(404).json({ success: false, message: 'Pharmacie introuvable' });
+    }
+
+    // Vérifier si déjà autorisé ou demande en cours
+    if (pharmacie.pharmacieInfo.employesAutorises.includes(clientId) ||
+        pharmacie.pharmacieInfo.demandesIntegration.some(d => d.clientId.toString() === clientId.toString() && d.statut === 'en_attente')) {
+      return res.status(400).json({ success: false, message: 'Demande déjà en cours ou autorisée' });
+    }
+
+    // Ajouter la demande
+    pharmacie.pharmacieInfo.demandesIntegration.push({ clientId });
+    await pharmacie.save();
+
+    // Envoyer email au créateur (createdBy)
+    const createur = await User.findById(pharmacie.pharmacieInfo.createdBy);
+    if (createur) {
+      await sendEmail(createur.email, 'Nouvelle demande d\'intégration', `Un client (${req.user.email}) demande à intégrer votre pharmacie. Connectez-vous pour approuver.`);
+    }
+
+    res.json({ success: true, message: 'Demande envoyée' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+};
+
 const getMaDemandePharmacie = async (req, res) => {
   try {
     console.log('🟢 [getMaDemandePharmacie] Récupération pour utilisateur:', req.user.email);
@@ -154,6 +186,7 @@ module.exports = {
   creerDemandePharmacie,
   getMaDemandePharmacie,
   uploadDemandePharmacie,
+  soumettreDemandeIntegration,
 };
 
 // Vérifier si une demande existe déjà (décommenter si nécessaire)

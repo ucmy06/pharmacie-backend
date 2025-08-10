@@ -42,6 +42,9 @@ router.post('/resend-verification', resendVerificationEmail);
 
 // Routes protégées (nécessitent une authentification)
 router.get('/profile', authenticate, getProfile);
+
+router.get('/me', authenticate, getProfile); // Nouvelle route pour /api/auth/me
+
 // router.post(
 //   '/demande-pharmacie',
 //   authenticate,

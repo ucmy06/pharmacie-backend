@@ -1,3 +1,4 @@
+// C:\reactjs node mongodb\pharmacie-backend\src\models\Panier.js
 const mongoose = require('mongoose');
 
 const cartSchema = new mongoose.Schema({

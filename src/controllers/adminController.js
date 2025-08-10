@@ -378,6 +378,9 @@ async function approvePharmacieRequest(req, res) {
         dateApprobation: new Date(),
         commentaireApprobation: commentaire || 'Demande approuvee',
         approuvePar: req.user._id,
+      createdBy: demandeur._id,
+      employesAutorises: [demandeur._id], // Ajouter le créateur comme employé autorisé
+      demandesIntegration: [],
         heuresOuverture: {
           lundi: { ouvert: false, debut: '', fin: '' },
           mardi: { ouvert: false, debut: '', fin: '' },
@@ -401,6 +404,10 @@ async function approvePharmacieRequest(req, res) {
 
     demandeur.demandePharmacie.statutDemande = 'approuvee';
     demandeur.demandePharmacie.dateApprobation = new Date();
+    demandeur.demandePharmacie.commentaireApprobation = commentaire || 'Demande approuvée';
+    demandeur.demandePharmacie.approuvePar = req.user._id;
+    demandeur.pharmaciesAssociees = demandeur.pharmaciesAssociees || [];
+    demandeur.pharmaciesAssociees.push({ pharmacyId: pharmacie._id, accessToken: '' });
     await demandeur.save();
 
     await sendPharmacyApprovalEmail(info.emailPharmacie, {
@@ -495,6 +502,8 @@ async function approveModificationRequest(req, res) {
     pharmacie.demandePharmacie.demandeModification.approuvePar = req.user._id;
 
     await pharmacie.save();
+
+    
 
     await sendPharmacyRequestStatusEmail(pharmacie.email, 'approuvee', {
       prenom: pharmacie.prenom,

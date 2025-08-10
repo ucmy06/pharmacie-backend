@@ -78,7 +78,25 @@ const pharmacieInfoSchema = new mongoose.Schema({
   dateApprobation: Date,
   dateRejet: Date,
   commentaireApprobation: String,
-  approuvePar: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  approuvePar: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+    },
+
+    employesAutorises: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: []  // Liste des IDs de clients autorisés à se connecter
+  }],
+  demandesIntegration: [{
+    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    statut: { type: String, enum: ['en_attente', 'approuvee', 'rejetee'], default: 'en_attente' },
+    dateDemande: { type: Date, default: Date.now },
+    motifRejet: { type: String },
+    messageApprobation: { type: String }  // Champ pour le message/mot de passe envoyé lors d'approbation
+  }],
+
 });
 
 /**
@@ -160,6 +178,12 @@ const userSchema = new mongoose.Schema({
   lastLogin: {
     type: Date
   },
+  
+  pharmaciesAssociees: [{
+  pharmacyId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  accessToken: { type: String }
+}],
+
   pharmacieInfo: {
     type: pharmacieInfoSchema,
     default: null
@@ -275,6 +299,8 @@ userSchema.methods.verifyToken = function(token) {
   return this.verificationToken === token && 
          this.verificationTokenExpires > Date.now();
 };
+ 
+
 
 /**
  * Schéma pour les connexions utilisateur-pharmacie (collection séparée)
