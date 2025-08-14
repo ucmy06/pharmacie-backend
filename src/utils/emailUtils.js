@@ -678,38 +678,68 @@ const sendPharmacyAccessPassword = async (email, nomPharmacie, nomUtilisateur, m
   console.log(`✅ E-mail envoyé à ${email} avec le mot de passe`);
 };
 
+// C:\reactjs node mongodb\pharmacie-backend\src\utils\emailUtils.js
+/**
+ * Envoie un email de notification à l'admin pour une demande d'intégration
+ * @param {Object} data - Données de la demande
+ */
 const sendIntegrationRequestNotification = async (data) => {
   const { nomPharmacie, nom, prenom, email, telephone, message, recipientEmail } = data;
-  
-  const transporter = createTransporter(); // Utiliser createTransporter
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: recipientEmail, // Email du createdBy
-    subject: `Nouvelle demande d'intégration pour ${nomPharmacie}`,
-    text: `
-      Nouvelle demande d'intégration reçue pour ${nomPharmacie} :
-      Nom : ${prenom} ${nom}
-      Email : ${email}
-      Téléphone : ${telephone}
-      Message : ${message || 'Aucun message fourni'}
-      Veuillez examiner cette demande dans votre tableau de bord à l'adresse : http://localhost:3000/pharmacie/demandes-integration
-    `,
-    html: `
-      <h2>Nouvelle demande d'intégration pour ${nomPharmacie}</h2>
-      <p><strong>Nom :</strong> ${prenom} ${nom}</p>
-      <p><strong>Email :</strong> ${email}</p>
-      <p><strong>Téléphone :</strong> ${telephone}</p>
-      <p><strong>Message :</strong> ${message || 'Aucun message fourni'}</p>
-      <p>Veuillez examiner cette demande dans votre <a href="http://localhost:3000/pharmacie/demandes-integration">tableau de bord</a>.</p>
-    `,
-  };
+
+  // Validate recipientEmail
+  if (!recipientEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
+    console.error('❌ Erreur: Adresse email du destinataire invalide:', recipientEmail);
+    throw new Error('Adresse email du destinataire invalide');
+  }
+
+  const subject = `Nouvelle demande d'intégration pour ${nomPharmacie} - PharmOne`;
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+      <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
+        <h1 style="margin: 0; font-size: 28px;">🏥 Nouvelle Demande d'Intégration</h1>
+        <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">PharmOne</p>
+      </div>
+      <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+        <h2 style="color: #333; margin-top: 0; font-size: 24px;">Bonjour,</h2>
+        <p style="color: #666; line-height: 1.6; font-size: 16px;">
+          Une nouvelle demande d'intégration a été soumise pour la pharmacie <strong>${nomPharmacie}</strong>.
+        </p>
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #28a745;">
+          <p style="color: #333; margin: 10px 0; line-height: 1.8;">
+            <strong>Nom :</strong> ${prenom} ${nom}<br>
+            <strong>Email :</strong> ${email}<br>
+            <strong>Téléphone :</strong> ${telephone}<br>
+            <strong>Message :</strong> ${message || 'Aucun message fourni'}
+          </p>
+        </div>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/pharmacie/demandes-integration" 
+             style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); 
+                    color: white; 
+                    padding: 15px 30px; 
+                    text-decoration: none; 
+                    border-radius: 25px; 
+                    font-weight: bold;
+                    font-size: 16px;
+                    display: inline-block;
+                    box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);">
+            🔍 Examiner la demande
+          </a>
+        </div>
+        <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+        <p style="color: #999; font-size: 12px; text-align: center;">
+          Notification automatique - PharmOne Admin
+        </p>
+      </div>
+    </div>
+  `;
 
   try {
-    await transporter.sendMail(mailOptions);
+    await sendEmail(recipientEmail, subject, html);
     console.log('📧 Notification de demande d\'intégration envoyée à:', recipientEmail);
   } catch (error) {
     console.error('❌ Erreur envoi email notification:', error);
-    throw error;
+    throw new Error('Erreur lors de l\'envoi de la notification d\'intégration');
   }
 };
 

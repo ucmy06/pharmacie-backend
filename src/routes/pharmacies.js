@@ -1,4 +1,3 @@
-// C:\reactjs node mongodb\pharmacie-backend\src\routes\pharmacies.js
 const express = require('express');
 const router = express.Router();
 const pharmacieController = require('../controllers/pharmacieController');
@@ -7,17 +6,18 @@ const { authenticate } = require('../middlewares/auth');
 const { checkRole, requirePharmacie } = require('../middlewares/roleCheck');
 const Notification = require('../models/Notification');
 const { createDetailedLog } = require('../utils/logUtils');
-const { checkAssociation } = require('../controllers/pharmacieController');console.log('🔍 authController:', Object.keys(authController));
+
+console.log('🔍 authController:', Object.keys(authController));
 console.log('🔍 authController.connexionPharmacie:', typeof authController.connexionPharmacie);
 console.log('🔍 pharmacieController:', Object.keys(pharmacieController));
 console.log('🔍 pharmacieController.connexionPharmacie:', typeof pharmacieController.connexionPharmacie);
 
 // Routes statiques en premier
+router.get('/demandes-integration', authenticate, requirePharmacie, pharmacieController.getDemandesIntegration);
 router.get('/', authenticate, pharmacieController.getPharmacies);
 router.get('/garde', pharmacieController.getPharmaciesDeGarde);
 router.get('/recherche-geo', pharmacieController.rechercheGeolocalisee);
 router.get('/commandes', authenticate, checkRole(['pharmacie']), pharmacieController.getCommandesPharmacie);
-router.get('/demandes-integration', pharmacieController.listerDemandesIntegration);
 router.get('/notifications', authenticate, checkRole(['pharmacie']), async (req, res) => {
   try {
     const notifications = await Notification.find({ userId: req.user._id, lu: false })
@@ -58,12 +58,13 @@ router.put('/profile/change-password', authenticate, checkRole(['pharmacie']), p
 router.put('/update-profile', authenticate, checkRole(['pharmacie']), pharmacieController.uploadPharmacyPhoto, pharmacieController.updateProfilPharmacie);
 router.put('/commandes/statut', authenticate, checkRole(['pharmacie']), pharmacieController.updateStatutCommande);
 
-// Route dynamique en dernier
+// Routes dynamiques
+router.get('/by-id/:pharmacyId', authenticate, pharmacieController.getPharmacyById); // Nouvelle route
 router.get('/:pharmacyId', authenticate, pharmacieController.getPharmacieById);
 router.post('/demande-integration', authenticate, pharmacieController.demanderIntegration);
-router.get('/demandes-integration', authenticate, requirePharmacie, pharmacieController.getDemandesIntegration);
-router.post('/valider-demande-integration', authenticate, pharmacieController.approuverDemandeIntegration);
+router.post('/valider-demande-integration', authenticate, pharmacieController.validerDemandeIntegration);
 router.get('/check-created-by', authenticate, pharmacieController.checkCreatedByStatus);
-router.get('/check-association', authenticate, checkAssociation);
+router.get('/check-association', authenticate, pharmacieController.checkAssociation);
 router.post('/login-by-password', pharmacieController.loginByPassword);
+
 module.exports = router;
