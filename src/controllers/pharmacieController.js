@@ -1014,12 +1014,13 @@ exports.getMesConnexions = async (req, res) => {
 };
 
 // Obtenir les connexions des clients à ma pharmacie
+// pharmacieController.js
 exports.getConnexionsClients = async (req, res) => {
   try {
     const { page = 1, limit = 50, dateDebut, dateFin } = req.query;
     const skip = (page - 1) * limit;
 
-    const filter = { pharmacie: req.user._id };
+    const filter = { pharmacyId: req.user._id }; // Corrigé : utiliser pharmacyId au lieu de pharmacie
 
     if (dateDebut && dateFin) {
       filter.dateConnexion = {
@@ -1028,8 +1029,10 @@ exports.getConnexionsClients = async (req, res) => {
       };
     }
 
+    console.log('🔍 [getConnexionsClients] Filtre:', filter); // Ajouté pour débogage
+
     const connexions = await ConnexionPharmacie.find(filter)
-      .populate('utilisateur', 'nom prenom email telephone')
+      .populate('utilisateurId', 'nom prenom email telephone') // Corrigé : utiliser utilisateurId
       .sort({ dateConnexion: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -1037,7 +1040,7 @@ exports.getConnexionsClients = async (req, res) => {
     const total = await ConnexionPharmacie.countDocuments(filter);
 
     const stats = await ConnexionPharmacie.aggregate([
-      { $match: { pharmacie: new mongoose.Types.ObjectId(req.user._id) } },
+      { $match: { pharmacyId: new mongoose.Types.ObjectId(req.user._id) } }, // Corrigé : utiliser pharmacyId
       {
         $group: {
           _id: '$typeConnexion',
@@ -1045,6 +1048,8 @@ exports.getConnexionsClients = async (req, res) => {
         },
       },
     ]);
+
+    console.log('🔍 [getConnexionsClients] Connexions trouvées:', connexions.length); // Ajouté pour débogage
 
     res.json({
       success: true,

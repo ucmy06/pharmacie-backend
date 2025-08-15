@@ -196,6 +196,58 @@ router.post('/add', authenticate, async (req, res) => {
   }
 });
 
+router.put('/update', authenticate, async (req, res) => {
+  try {
+    const { cartId, medicamentId, quantity } = req.body;
+    const userId = req.user._id;
+
+    console.log('🔍 [updateCartItem] Requête reçue:', { cartId, medicamentId, quantity, userId });
+
+    if (!cartId || !medicamentId || !quantity || quantity < 1) {
+      return res.status(400).json({ success: false, message: 'cartId, medicamentId et quantity (minimum 1) sont requis' });
+    }
+
+    const cart = await Cart.findOne({ _id: cartId, userId });
+    if (!cart) {
+      return res.status(404).json({ success: false, message: 'Panier non trouvé' });
+    }
+
+    const item = cart.items.find((item) => item.medicamentId.toString() === medicamentId);
+    if (!item) {
+      return res.status(404).json({ success: false, message: 'Médicament non trouvé dans le panier' });
+    }
+
+    // Vérifier la pharmacie et sa base de données
+    const pharmacy = await User.findById(cart.pharmacyId);
+    if (!pharmacy || !pharmacy.pharmacieInfo?.baseMedicament) {
+      return res.status(404).json({ success: false, message: 'Pharmacie non trouvée ou base de données non configurée' });
+    }
+
+    // Utiliser la base de données spécifique de la pharmacie
+    const connection = mongoose.connection.useDb(pharmacy.pharmacieInfo.baseMedicament);
+    const MedicamentModel = connection.model('Medicament', Medicament.schema, 'medicaments');
+    const medicament = await MedicamentModel.findById(medicamentId);
+    if (!medicament) {
+      return res.status(404).json({ success: false, message: 'Médicament non trouvé' });
+    }
+    if (quantity > medicament.quantite_stock) {
+      return res.status(400).json({ success: false, message: 'Stock insuffisant pour la quantité demandée' });
+    }
+
+    item.quantity = quantity;
+    cart.updatedAt = new Date();
+    await cart.save();
+
+    console.log('✅ [updateCartItem] Quantité mise à jour:', { cartId, medicamentId, quantity });
+    res.json({ success: true, message: 'Quantité mise à jour', data: cart });
+  } catch (error) {
+    console.error('❌ [updateCartItem] Erreur:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur', error: error.message });
+  }
+});
+
+
+
 
 
 module.exports = router;

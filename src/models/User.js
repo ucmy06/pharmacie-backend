@@ -332,7 +332,11 @@ const connexionPharmacieSchema = new mongoose.Schema({
     enum: ['consultation', 'commande', 'information'],
     default: 'consultation'
   }
-}, { timestamps: true });
+}, {
+    timestamps: true,
+    collection: 'connexionpharmacies', // Spécifier explicitement la collection
+  }
+);
 
 const User = mongoose.model('User', userSchema);
 

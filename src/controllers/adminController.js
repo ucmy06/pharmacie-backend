@@ -971,7 +971,7 @@ async function associerBaseMedicament(req, res) {
     });
   }
 
-  const validDatabases = ['pharmacie_alpha', 'pharmacie_beta', 'pharmacie_nova', 'pharmacie_omega'];
+  const validDatabases = ['pharmacie_alpha', 'pharmacie_beta', 'pharmacie_nova', 'pharmacie_omega', 'pharmacie_test','pharmacie_first'];
   if (!validDatabases.includes(nomBaseMedicament)) {
     return res.status(400).json({ success: false, message: 'Base de données invalide' });
   }
@@ -996,6 +996,48 @@ async function associerBaseMedicament(req, res) {
     });
   } catch (error) {
     console.error('❌ Erreur liaison base:', error);
+    return res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+}
+
+async function disconnectDatabase(req, res) {
+  const { pharmacyId } = req.params;
+
+  if (!pharmacyId) {
+    console.log('❌ [disconnectDatabase] pharmacyId manquant');
+    return res.status(400).json({
+      success: false,
+      message: 'pharmacyId est requis.',
+    });
+  }
+
+  try {
+    const user = await User.findById(pharmacyId);
+    if (!user || user.role !== 'pharmacie') {
+      console.log(`❌ [disconnectDatabase] Pharmacie ${pharmacyId} non trouvée ou rôle invalide`);
+      return res.status(404).json({ success: false, message: 'Pharmacie non trouvée.' });
+    }
+
+    if (!user.pharmacieInfo.baseMedicament) {
+      console.log(`❌ [disconnectDatabase] Aucune base de données associée à la pharmacie ${pharmacyId}`);
+      return res.status(400).json({ success: false, message: 'Aucune base de données associée à cette pharmacie.' });
+    }
+
+    user.pharmacieInfo.baseMedicament = null;
+    await user.save();
+
+    console.log(`✅ [disconnectDatabase] Base de données déconnectée pour la pharmacie ${pharmacyId}`);
+    return res.status(200).json({
+      success: true,
+      message: 'Base de données déconnectée avec succès',
+      pharmacie: {
+        id: user._id,
+        nom: user.nom,
+        base: null,
+      },
+    });
+  } catch (error) {
+    console.error('❌ [disconnectDatabase] Erreur:', error);
     return res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 }
@@ -1298,6 +1340,54 @@ async function searchMedicaments(req, res) {
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 }
+/**
+ * Activer/Désactiver un compte utilisateur
+ */
+const toggleUserStatus = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Find the user by ID
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log(`❌ [toggleUserStatus] Utilisateur ${userId} non trouvé`);
+      return res.status(404).json({
+        success: false,
+        message: 'Utilisateur non trouvé',
+      });
+    }
+
+    // Prevent disabling own account
+    if (user._id.toString() === req.user._id.toString()) {
+      console.log(`❌ [toggleUserStatus] Tentative de désactivation du propre compte par ${req.user._id}`);
+      return res.status(400).json({
+        success: false,
+        message: 'Vous ne pouvez pas désactiver votre propre compte',
+      });
+    }
+
+    // Toggle the isActive field
+    user.isActive = !user.isActive;
+    await user.save();
+
+    console.log(`✅ [toggleUserStatus] Statut utilisateur ${userId} mis à jour: isActive=${user.isActive}`);
+    res.json({
+      success: true,
+      message: `Compte ${user.isActive ? 'activé' : 'désactivé'} avec succès`,
+      data: {
+        userId: user._id,
+        isActive: user.isActive,
+      },
+    });
+  } catch (error) {
+    console.error('❌ [toggleUserStatus] Erreur:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur',
+      error: error.message,
+    });
+  }
+};
 
 module.exports = {
   getPharmacieDemandeCreationRequests,
@@ -1314,10 +1404,12 @@ module.exports = {
   getAdminDashboard,
   getApprovedPharmacies,
   associerBaseMedicament,
+  disconnectDatabase,
   uploadMedicamentImage: uploadMedicamentImageHandler,
   handlePharmacyRequest,
   getPharmacyMedicaments,
   uploadDrugImageHandler,
   getAllMedicaments,
-  searchMedicaments
+  searchMedicaments,
+  toggleUserStatus, // Add this line
 };

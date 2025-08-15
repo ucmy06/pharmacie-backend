@@ -1,3 +1,5 @@
+// C:\reactjs node mongodb\pharmacie-backend\src\controllers\userController.js
+
 const mongoose = require('mongoose');
 const medicamentSchema = require('../models/Medicament'); // Assurez-vous que le chemin est correct
 const { authenticate, checkRole } = require('../middlewares/auth');

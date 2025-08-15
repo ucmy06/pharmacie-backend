@@ -12,6 +12,8 @@ const {
   resetPassword,
   verifyEmail,
   resendVerificationEmail,
+  updateProfile, // AJOUT
+  updatePassword, // AJOUT
   // demandeComptePharmacie,
   connexionPharmacie
 } = require('../controllers/authController');
@@ -43,7 +45,11 @@ router.post('/resend-verification', resendVerificationEmail);
 // Routes protégées (nécessitent une authentification)
 router.get('/profile', authenticate, getProfile);
 
+
 router.get('/me', authenticate, getProfile); // Nouvelle route pour /api/auth/me
+
+router.put('/profile', authenticate, updateProfile);
+router.put('/password', authenticate, updatePassword);
 
 // router.post(
 //   '/demande-pharmacie',

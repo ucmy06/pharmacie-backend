@@ -594,6 +594,98 @@ console.log('🔍 getProfile:', typeof getProfile);
 console.log('🔍 demandeComptePharmacie:', typeof demandeComptePharmacie);
 console.log('🔍 connexionPharmacie:', typeof connexionPharmacie);
 
+console.log('🔍 Définition de updateProfile');
+const updateProfile = async (req, res) => {
+  try {
+    const { nom, prenom, email, telephone, adresse, dateNaissance, sexe } = req.body;
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Utilisateur non trouvé'
+      });
+    }
+    user.nom = nom || user.nom;
+    user.prenom = prenom || user.prenom;
+    user.email = email || user.email;
+    user.telephone = telephone || user.telephone;
+    user.adresse = adresse || user.adresse;
+    user.dateNaissance = dateNaissance || user.dateNaissance;
+    user.sexe = sexe || user.sexe;
+    await user.save();
+    createDetailedLog('MISE_A_JOUR_PROFIL', {
+      userId: user._id,
+      email: user.email,
+      updatedFields: req.body
+    });
+    res.json({
+      success: true,
+      message: 'Profil mis à jour avec succès',
+      data: {
+        user: user.getPublicProfile()
+      }
+    });
+  } catch (error) {
+    console.error('❌ Erreur mise à jour profil:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la mise à jour du profil'
+    });
+  }
+};
+console.log('🔍 updateProfile défini');
+
+console.log('🔍 Définition de updatePassword');
+const updatePassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mot de passe actuel et nouveau mot de passe requis'
+      });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Le nouveau mot de passe doit contenir au moins 6 caractères'
+      });
+    }
+    const user = await User.findById(req.user._id).select('+motDePasse');
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Utilisateur non trouvé'
+      });
+    }
+    const isMatch = await user.comparePassword(currentPassword);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Mot de passe actuel incorrect'
+      });
+    }
+    user.motDePasse = newPassword;
+    user.motDePasseTemporaire = false;
+    await user.save();
+    createDetailedLog('CHANGEMENT_MOT_DE_PASSE', {
+      userId: user._id,
+      email: user.email
+    });
+    res.json({
+      success: true,
+      message: 'Mot de passe modifié avec succès'
+    });
+  } catch (error) {
+    console.error('❌ Erreur changement mot de passe:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors du changement de mot de passe'
+    });
+  }
+};
+console.log('🔍 updatePassword défini');
+
 console.log('🔍 Exportations de authController:', Object.keys(module.exports));
 module.exports = {}; // Vider module.exports
 module.exports = {
@@ -606,6 +698,8 @@ module.exports = {
   resetPassword,
   resendVerificationEmail,
   getProfile,
+  updateProfile, // AJOUT
+  updatePassword // AJOUT
 };
 console.log('🔍 module.exports défini');
 console.log('🔍 Exportations de authController après assignation:', Object.keys(module.exports));
