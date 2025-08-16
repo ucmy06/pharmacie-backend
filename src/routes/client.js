@@ -14,7 +14,7 @@ const { getApprovedPharmacies, searchMedicaments } = require('../controllers/adm
 const { creerDemandePharmacie, getMaDemandePharmacie } = require('../controllers/demandePharmacieController');
 const { createDetailedLog } = require('../utils/logUtils');
 const webPush = require('web-push');
-
+const AlertSubscription = require('../models/AlertSubscription');
 
 router.get('/vapid-public-key', authenticate, (req, res) => {
   res.json({ success: true, publicKey: process.env.VAPID_PUBLIC_KEY });
@@ -167,7 +167,7 @@ router.post('/commandes', authenticate, async (req, res) => {
     const notificationPharmacie = await Notification.create({
       userId: pharmacyObjectId,
       type: 'commande',
-      message: `Nouvelle commande (#${commande._id}) de ${req.user.nom} ${req.user.prenom}`,
+      message: `Nouvelle commande de medicaments de ${req.user.nom} ${req.user.prenom}`,
       commandeId: commande._id,
     });
     console.log('🔔 Notification créée pour pharmacie:', notificationPharmacie._id);
@@ -177,7 +177,7 @@ router.post('/commandes', authenticate, async (req, res) => {
       try {
         await webPush.sendNotification(pharmacieUser.pushSubscription, JSON.stringify({
           title: 'Nouvelle commande',
-          message: `Nouvelle commande (#${commande._id}) de ${req.user.nom} ${req.user.prenom}`,
+          message: `Nouvelle commande de medicaments de ${req.user.nom} ${req.user.prenom}`,
           icon: '/favicon.ico',
         }));
         console.log('📬 Notification push envoyée à la pharmacie:', pharmacyId);
@@ -227,7 +227,7 @@ router.post('/commandes', authenticate, async (req, res) => {
         const adminNotification = await Notification.create({
           userId: admin._id,
           type: 'commande',
-          message: `Nouvelle commande (#${commande._id}) passée pour la pharmacie ${pharmacie.pharmacieInfo.nomPharmacie}`,
+          message: `Nouvelle commande de medicaments passée pour la pharmacie ${pharmacie.pharmacieInfo.nomPharmacie}`,
           commandeId: commande._id,
         });
         io.to(`user_${admin._id}`).emit('nouvelleCommande', {
@@ -804,4 +804,26 @@ router.get('/pharmacies', authenticate, async (req, res, next) => {
     next(error);
   }
 });
+
+
+router.post('/alerts/subscribe', authenticate, checkRole(['client']), async (req, res) => {
+  try {
+    const { medicamentId, pharmacyId } = req.body;
+    if (!medicamentId || !pharmacyId) {
+      return res.status(400).json({ success: false, message: 'medicamentId et pharmacyId requis' });
+    }
+    const AlertSubscription = require('../models/AlertSubscription');
+    const alert = new AlertSubscription({
+      userId: req.user.id,
+      medicamentId,
+      pharmacyId
+    });
+    await alert.save();
+    res.json({ success: true, message: 'Abonné à l\'alerte avec succès' });
+  } catch (error) {
+    console.error('❌ Erreur abonnement alerte:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
 module.exports = router;

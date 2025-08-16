@@ -67,4 +67,56 @@ router.get('/check-created-by', authenticate, pharmacieController.checkCreatedBy
 router.get('/check-association', authenticate, pharmacieController.checkAssociation);
 router.post('/login-by-password', pharmacieController.loginByPassword);
 
+
+
+
+router.put('/medicaments/:id/stock', authenticate, checkRole(['pharmacie']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { newStock } = req.body;
+    if (newStock === undefined || newStock < 0) {
+      return res.status(400).json({ success: false, message: 'Stock invalide' });
+    }
+    const medicament = await Medicament.findById(id);
+    if (!medicament) {
+      return res.status(404).json({ success: false, message: 'Médicament non trouvé' });
+    }
+    const oldStock = medicament.quantite_stock;
+    medicament.quantite_stock = newStock;
+    await medicament.save();
+    if (newStock > 0 && oldStock === 0) {
+      const subscriptions = await AlertSubscription.find({ medicamentId: id, pharmacyId: req.user.id });
+      for (const sub of subscriptions) {
+        const subscriber = await User.findById(sub.userId).select('pushSubscription');
+        if (subscriber.pushSubscription) {
+          try {
+            await webPush.sendNotification(subscriber.pushSubscription, JSON.stringify({
+              title: 'Produit disponible',
+              message: `Le produit ${medicament.nom} est maintenant disponible à ${req.user.pharmacieInfo.nomPharmacie}`,
+              icon: '/favicon.ico'
+            }));
+            console.log('✅ Notification push envoyée à:', sub.userId);
+          } catch (error) {
+            console.error('❌ Erreur notification push:', error);
+          }
+        }
+        // Optionnellement, notifier via WebSocket
+        const io = getIo();
+        if (io) {
+          io.to(`user_${sub.userId}`).emit('stockAlert', {
+            medicamentId: id,
+            pharmacyId: req.user.id,
+            message: `Le produit ${medicament.nom} est disponible`
+          });
+        }
+        // Supprimer la subscription après notification
+        await sub.remove();
+      }
+    }
+    res.json({ success: true, message: 'Stock mis à jour' });
+  } catch (error) {
+    console.error('❌ Erreur mise à jour stock:', error);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
 module.exports = router;
